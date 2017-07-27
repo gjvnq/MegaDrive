@@ -1,10 +1,10 @@
 package main
 
 import (
-	"time"
 	"fmt"
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
+	"time"
 )
 
 type MDNode struct {
@@ -129,7 +129,7 @@ func (n *MDNode) ListXAttr(context *fuse.Context) (attrs []string, code fuse.Sta
 	return nil, fuse.ENOSYS
 }
 
-func (n *MDNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) (code 	fuse.Status) {
+func (n *MDNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) (code fuse.Status) {
 	fmt.Printf("GetAttr (n=%v; out=%v; file=%v; context=%v)\n", *n, *out, file, *context)
 	if file != nil {
 		return file.GetAttr(out)

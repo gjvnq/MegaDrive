@@ -3,15 +3,15 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"golang.org/x/net/context"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/drive/v3"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"golang.org/x/net/context"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/drive/v3"
 )
 
 const DevSecret = "{\"installed\":{\"client_id\":\"247137966113-i7t9f4qmg579dc5kjkoe9o1fiavemu1h.apps.googleusercontent.com\",\"project_id\":\"elevated-codex-175014\",\"auth_uri\":\"https://accounts.google.com/o/oauth2/auth\",\"token_uri\":\"https://accounts.google.com/o/oauth2/token\",\"auth_provider_x509_cert_url\":\"https://www.googleapis.com/oauth2/v1/certs\",\"client_secret\":\"zsJmWViFbtFh7tyCgTNHxINw\",\"redirect_uris\":[\"urn:ietf:wg:oauth:2.0:oob\",\"http://localhost\"]}}"
@@ -84,22 +84,27 @@ func saveToken(file string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
-func drive_test() {
-	ctx := context.Background()
+var DriveCtx context.Context
+var DriveConfig *oauth2.Config
 
-	config, err := google.ConfigFromJSON([]byte(DevSecret), drive.DriveScope)
+func drive_test() {
+	var err error
+	DriveCtx = context.Background()
+	DriveConfig, err = google.ConfigFromJSON([]byte(DevSecret), drive.DriveScope)
 	if err != nil {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)
 	}
-	client := getClient(ctx, config)
+	client := getClient(DriveCtx, DriveConfig)
 
 	srv, err := drive.New(client)
 	if err != nil {
 		log.Fatalf("Unable to retrieve drive Client %v", err)
 	}
 
-	r, err := srv.Files.List().PageSize(100).
-	Fields("nextPageToken, files(id, name)").Do()
+	r, err := srv.Files.List().
+		Fields("nextPageToken, files(id, name)").
+		Q("'root' in parents").
+		Do()
 	if err != nil {
 		log.Fatalf("Unable to retrieve files: %v", err)
 	}
