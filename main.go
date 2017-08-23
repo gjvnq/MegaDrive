@@ -2,12 +2,16 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
 	"github.com/syndtr/goleveldb/leveldb"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
+	"os/user"
+	"path/filepath"
 )
 
 var RootNode = &MDNode{}
@@ -19,6 +23,17 @@ func main() {
 	main_fuse()
 }
 
+func file_in_config(file string) (string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	tokenCacheDir := filepath.Join(usr.HomeDir, ".config", "MegaDrive")
+	os.MkdirAll(tokenCacheDir, 0700)
+	return filepath.Join(tokenCacheDir,
+		url.QueryEscape(file)), err
+}
+
 func main_fuse() {
 	var err error
 
@@ -28,28 +43,40 @@ func main_fuse() {
 	// Get CLI options
 	debug := flag.Bool("debug", false, "print debugging messages.")
 	other := flag.Bool("allow-other", false, "mount with -o allowother.")
-	enableLinks := flag.Bool("l", false, "Enable hard link support")
 	flag.Parse()
 	mount_point := flag.Arg(1)
 	if len(flag.Args()) < 1 {
 		log.Fatal("Usage:\n  MegaDrive MOUNTPOINT")
 	}
 
-	// Mount DB
-	DB, err = leveldb.OpenFile(".mega_drive/leveldb", nil)
-	defer DB.Close()
-
-	// Look for root inode
-	data, err := DB.Get([]byte("map:google_id:to:inode:root"), nil)
-	if err == nil {
-		err = DB.Put([]byte("map:google_id:to:inode:root"), RootNode.Inode(), nil)
-		if err != nil {
-			log.Fatalf("Failed to write root inode: %v\n", err)
-		}
+	// Get DB filepath
+	db_file, err := file_in_config("level.db")
+	if err != nil {
+		log.Fatalf("Failed to get database filepath: %v\n", err)
 	}
 
+	// Load DB
+	DB, err = leveldb.OpenFile(db_file, nil)
+	defer DB.Close()
+
+	// Load Google Drive
+	DriveClient = get_drive_client()
+
+	// Look for root node info
+	tmp, _ := get_node_info("root")
+	fmt.Printf("%+v\n", tmp)
+	tmp2a, tmp2b := get_nodes_ids_with_parent("root")
+	fmt.Printf("%+v %+v\n", tmp2a, tmp2b)
+	// data, err := DB.Get([]byte("map:google_id:to:metadata:root"), nil)
+	// if err == nil {
+	// 	err = DB.Put([]byte("map:google_id:to:inode:root"), RootNode.Inode(), nil)
+	// 	if err != nil {
+	// 		log.Fatalf("Failed to write root inode: %v\n", err)
+	// 	}
+	// }
+
 	// Prepare fs
-	FSConn = nodefs.NewFileSystemConnector(RootNode, fuse.NewMountOptions())
+	FSConn = nodefs.NewFileSystemConnector(RootNode, &nodefs.Options{})
 	mount_point_abs, _ := filepath.Abs(mount_point)
 	mOpts := &fuse.MountOptions{
 		AllowOther: *other,
