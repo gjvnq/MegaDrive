@@ -39,7 +39,7 @@ func (n *MDNode) StatFs() *fuse.StatfsOut {
 }
 
 func (n *MDNode) SetInode(node *nodefs.Inode) {
-	fmt.Println("SetInode")
+	fmt.Printf("SetInode (%+v)\n", *node)
 	n.inode = node
 }
 
@@ -68,7 +68,7 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (nod
 	// Call Google Drive
 	r, err := DriveClient.Files.List().
 		Fields("nextPageToken, files(id, name, mimeType)").
-		Q(escape("'?' in parents and name = '?'", n.GoogleId, name)).
+		Q(escape("'?' in parents and name = '?' and trashed = false", n.GoogleId, name)).
 		Do()
 	if err != nil {
 		log.Printf("Unable to LookUp %s in %s: %v", name, n.GoogleId, err)
@@ -83,7 +83,9 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (nod
 		new_node.GoogleId = r.Files[0].Id
 		isDir := (r.Files[0].MimeType == "application/vnd.google-apps.folder")
 		log.Printf("%s -> fuse.OK", name)
-		return n.Inode().NewChild(name, isDir, new_node), fuse.OK
+		child := n.Inode().NewChild(name, isDir, new_node)
+		child.Node().GetAttr(out, nil, context)
+		return child, fuse.OK
 	} else {
 		log.Printf("%s -> fuse.EIO (%d) %+v", name, len(r.Files), r.Files)
 		return nil, fuse.EIO
@@ -156,7 +158,7 @@ func (n *MDNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
 	// Call Google Drive
 	r, err := DriveClient.Files.List().
 		Fields("nextPageToken, files(id, name, mimeType)").
-		Q(escape("'?' in parents", n.GoogleId)).
+		Q(escape("'?' in parents and trashed = false", n.GoogleId)).
 		Do()
 	if err != nil {
 		log.Printf("Unable to OpenDir %s: %v", n.GoogleId, err)
