@@ -101,7 +101,7 @@ func get_nodes_ids_with_parent(parent_id string) ([]string, bool) {
 
 	f, err := DriveClient.Files.List().
 		Fields("nextPageToken, files(id)").
-		Q("'"+parent_id+"' in parents").
+		Q("'" + parent_id + "' in parents").
 		Do()
 
 	for {
@@ -118,7 +118,7 @@ func get_nodes_ids_with_parent(parent_id string) ([]string, bool) {
 		f, err = DriveClient.Files.List().
 			Fields("nextPageToken, files(id)").
 			PageToken(f.NextPageToken).
-			Q("'"+parent_id+"' in parents").
+			Q("'" + parent_id + "' in parents").
 			Do()
 	}
 

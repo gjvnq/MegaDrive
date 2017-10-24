@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -18,6 +17,8 @@ var RootNode = &MDNode{}
 var DB *leveldb.DB
 var FSConn *nodefs.FileSystemConnector
 var FUSEServer *fuse.Server
+var Inode2Id *map_uint64_string
+var Unmounting bool
 
 func main() {
 	main_fuse()
@@ -36,6 +37,11 @@ func file_in_config(file string) (string, error) {
 
 func main_fuse() {
 	var err error
+	// Set a few variables
+	RootNode.GoogleId = "root"
+	// Inode2Id = &map_uint64_string{}
+	// Inode2Id.Init()
+	// Inode2Id.Set(RootNode, "root")
 
 	// Set Logger
 	log.SetFlags(log.Lmicroseconds)
@@ -44,10 +50,12 @@ func main_fuse() {
 	debug := flag.Bool("debug", false, "print debugging messages.")
 	other := flag.Bool("allow-other", false, "mount with -o allowother.")
 	flag.Parse()
-	mount_point := flag.Arg(1)
+	mount_point := flag.Arg(0)
 	if len(flag.Args()) < 1 {
 		log.Fatal("Usage:\n  MegaDrive MOUNTPOINT")
 	}
+	mount_point, _ = filepath.Abs(mount_point)
+	mount_parent, _ := filepath.Abs(mount_point + "/..")
 
 	// Get DB filepath
 	db_file, err := file_in_config("level.db")
@@ -62,28 +70,15 @@ func main_fuse() {
 	// Load Google Drive
 	DriveClient = get_drive_client()
 
-	// Look for root node info
-	tmp, _ := get_node_info("root")
-	fmt.Printf("%+v\n", tmp)
-	tmp2a, tmp2b := get_nodes_ids_with_parent("root")
-	fmt.Printf("%+v %+v\n", tmp2a, tmp2b)
-	// data, err := DB.Get([]byte("map:google_id:to:metadata:root"), nil)
-	// if err == nil {
-	// 	err = DB.Put([]byte("map:google_id:to:inode:root"), RootNode.Inode(), nil)
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to write root inode: %v\n", err)
-	// 	}
-	// }
-
 	// Prepare fs
 	FSConn = nodefs.NewFileSystemConnector(RootNode, &nodefs.Options{})
-	mount_point_abs, _ := filepath.Abs(mount_point)
 	mOpts := &fuse.MountOptions{
 		AllowOther: *other,
 		Name:       "MegaDrive",
-		FsName:     mount_point_abs,
+		FsName:     mount_point,
 		Debug:      *debug,
 	}
+	os.Mkdir(mount_parent+"/.MegaDrive", 0755)
 
 	// Mount fs
 	FUSEServer, err = fuse.NewServer(FSConn.RawFS(), mount_point, mOpts)
@@ -92,13 +87,17 @@ func main_fuse() {
 	}
 
 	// Prepare to deal with ctrl+c
-	sig_chan := make(chan os.Signal, 1)
+	sig_chan := make(chan os.Signal, 20)
 	signal.Notify(sig_chan, os.Interrupt)
 	go func() {
 		for _ = range sig_chan {
+			Unmounting = true
 			log.Println("Unmounting...")
 			FUSEServer.Unmount()
+			FUSEServer.Unmount()
+			FUSEServer.Unmount()
 			log.Println("Unmounted")
+			// os.Exit(0)
 		}
 	}()
 
