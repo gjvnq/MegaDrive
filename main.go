@@ -114,7 +114,7 @@ func CSet(key string, val interface{}) {
 
 func PrintCallDuration(prefix string, start *time.Time) {
 	elapsed := time.Since(*start)
-	TheLogger.DebugNF(1, "%s I took %s", prefix, elapsed)
+	TheLogger.DebugNF(1, "%s: I took %s", prefix, elapsed)
 }
 
 func file_in_config(file string) (string, error) {
@@ -192,10 +192,15 @@ func main_fuse() {
 			FUSEServer.Unmount()
 			FUSEServer.Unmount()
 			TheLogger.Notice("Unmounted")
-			// os.Exit(0)
+			os.Exit(0)
 		}
 	}()
 
+	// Start consumers
+	for i := 0; i < 3; i++ {
+		go DriveGetBasicsConsumer()
+		go DriveOpenDirConsumer()
+	}
 	// Pre Cache
 	TheLogger.Notice("Pre-caching...")
 	DriveGetBasics("root")

@@ -298,11 +298,8 @@ func (n *MDNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context
 
 	// Preload
 	if n.IsDir() {
-		go func() {
-			TheLogger.DebugF("Preloading directory (new goroutine) %s", n.GoogleId)
-			DriveOpenDir(n.GoogleId)
-			TheLogger.DebugF("Preloaded directory (new goroutine) %s", n.GoogleId)
-		}()
+		TheLogger.DebugF("Preloading directory (new goroutine) %s", n.GoogleId)
+		DriveOpenDirPreload(n.GoogleId)
 	}
 
 	out.Size = n.Size
