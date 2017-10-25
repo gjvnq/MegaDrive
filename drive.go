@@ -18,6 +18,14 @@ var ChOpenDirReq = make(chan string, 64)
 var MapOpenDirAns = make(map[string][]*sync.Mutex)
 var MapOpenDirAnsMux = *sync.RWMutex
 
+// Adds the desired file id to ChBasicInfoReq if it is not full. Otherwise, nothing happens.
+func DriveGetBasicsPreload(google_id string) {
+	select {
+    case ChBasicInfoReq <- google_id:
+    default:
+    }
+}
+
 func DriveGetBasics(google_id string) fuse.Status {
 	// Lock the MapBasicInfoAns for editing and add our own answer mutex
 	MapBasicInfoAnsMux.Lock()
