@@ -87,8 +87,7 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (ret
 	}
 
 	// Check for cache
-	if CFound("Lookup:"+name+":in:"+n.GoogleId+":id", "Lookup:"+name+":in:"+n.GoogleId+":isDir") {
-		TheLogger.DebugF("Cache HIT")
+	if CFoundPrefix("Lookup:"+name+":in:"+n.GoogleId+":", "id", "isDir") {
 		new_node := &MDNode{}
 		new_node.GoogleId = CGet("Lookup:" + name + ":in:" + n.GoogleId + ":id").(string)
 		isDir := CGet("Lookup:" + name + ":in:" + n.GoogleId + ":isDir").(bool)
@@ -122,6 +121,8 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (ret
 		// Save cache
 		CSet("Lookup:"+name+":in:"+n.GoogleId+":id", new_node.GoogleId)
 		CSet("Lookup:"+name+":in:"+n.GoogleId+":isDir", isDir)
+		// Preload
+		go n.GetBasics()
 
 		return child, fuse.OK
 	} else {
@@ -221,7 +222,7 @@ func (n *MDNode) ActualOpenDir(context *fuse.Context) (ret_dirs []fuse.DirEntry,
 
 	// Call Google Drive
 	r, err := DriveClient.Files.List().
-		Fields("nextPageToken, files(id, name, mimeType)").
+		Fields("nextPageToken, files(id, name, modifiedTime, size, mimeType, createdTime)").
 		Q(escape("'?' in parents and trashed = false", n.GoogleId)).
 		Do()
 	if err != nil {
@@ -240,12 +241,12 @@ func (n *MDNode) ActualOpenDir(context *fuse.Context) (ret_dirs []fuse.DirEntry,
 				val.Mode = fuse.S_IFDIR
 			}
 			ret = append(ret, val)
-			// Preload some stuff to make things quicker
-			go DriveGetBasics(file.Id)
 			// Cache some stuff
 			CSet("Lookup:"+file.Name+":in:"+n.GoogleId+":id", file.Id)
 			CSet("Lookup:"+file.Name+":in:"+n.GoogleId+":isDir", isDir)
+			// Preload some stuff to make things quicker
 			TheLogger.DebugF("Preloading %s (%s)", file.Id, file.Name)
+			ActualDriveGetBasicsPut(file.Id, file.Name, file.MimeType, file.Size, file.ModifiedTime, file.CreatedTime)
 		}
 		// Save cache
 		CSet("OpenDir:"+n.GoogleId, ret)

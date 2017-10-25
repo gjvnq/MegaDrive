@@ -34,7 +34,7 @@ func DriveGetBasics(google_id string) fuse.Status {
 
 func ActualDriveGetBasics(google_id string) fuse.Status {
 	// Only one worker at a time
-	if CGetDef("basic-attr:"+google_id+"!working", "false").(bool) == true {
+	if CGetDef("basic-attr:"+google_id+"!working", false).(bool) == true {
 		return fuse.OK
 	}
 	// Tell other we are working
@@ -47,35 +47,65 @@ func ActualDriveGetBasics(google_id string) fuse.Status {
 		CSet("basic-attr:"+google_id+"!ret", fuse.EIO)
 		return fuse.EIO
 	}
-	mtime, err := time.Parse(time.RFC3339, r.ModifiedTime)
-	if err != nil {
-		TheLogger.ErrorF("Unable to GetAttr %s: %v", google_id, err)
-		CSet("basic-attr:"+google_id+"!ret", fuse.EIO)
-		return fuse.EIO
-	}
-	ctime, err := time.Parse(time.RFC3339, r.CreatedTime)
-	if err != nil {
-		TheLogger.ErrorF("Unable to GetAttr %s: %v", google_id, err)
-		CSet("basic-attr:"+google_id+"!ret", fuse.EIO)
-		return fuse.EIO
-	}
 
 	// Set cache
+	ActualDriveGetBasicsPut(google_id, r.Name, r.MimeType, r.Size, r.ModifiedTime, r.CreatedTime)
+	return CGet("basic-attr:" + google_id + "!ret").(fuse.Status)
+}
+
+func ActualDriveGetBasicsPut(google_id string, name string, mimeType string, size int64, modifiedTime string, createdTime string) {
+	// Lock file metadata
 	CLock("basic-attr:" + google_id + "!mux")
 	defer CUnlock("basic-attr:" + google_id + "!mux")
+	// Parse times
+	mtime, err := time.Parse(time.RFC3339, modifiedTime)
+	if err != nil {
+		TheLogger.ErrorF("Unable to GetAttr %s: %v", google_id, err)
+		CSet("basic-attr:"+google_id+"!ret", fuse.EIO)
+		return
+	}
+	ctime, err := time.Parse(time.RFC3339, createdTime)
+	if err != nil {
+		TheLogger.ErrorF("Unable to GetAttr %s: %v", google_id, err)
+		CSet("basic-attr:"+google_id+"!ret", fuse.EIO)
+		return
+	}
+	// Save stuff
 	CSet("basic-attr:"+google_id+"!RefrehTime", time.Now().Add(GENERAL_UPDATE_DELTA).Unix())
-	CSet("basic-attr:"+google_id+":Name", r.Name)
-	CSet("basic-attr:"+google_id+":MimeType", r.MimeType)
-	CSet("basic-attr:"+google_id+":IsDir", r.MimeType == "application/vnd.google-apps.folder")
-	CSet("basic-attr:"+google_id+":Size", uint64(r.Size))
+	CSet("basic-attr:"+google_id+":Name", name)
+	CSet("basic-attr:"+google_id+":MimeType", mimeType)
+	CSet("basic-attr:"+google_id+":IsDir", mimeType == "application/vnd.google-apps.folder")
+	CSet("basic-attr:"+google_id+":Size", uint64(size))
 	CSet("basic-attr:"+google_id+":Atime", uint64(mtime.Unix()))
 	CSet("basic-attr:"+google_id+":Ctime", uint64(ctime.Unix()))
 	CSet("basic-attr:"+google_id+":Mtime", uint64(mtime.Unix()))
 	CSet("basic-attr:"+google_id+":Atimensec", uint32(mtime.UnixNano()))
 	CSet("basic-attr:"+google_id+":Ctimensec", uint32(ctime.UnixNano()))
 	CSet("basic-attr:"+google_id+":Mtimensec", uint32(mtime.UnixNano()))
-	TheLogger.InfoF("Updated BasicAttr for %s (%s)", google_id, r.Name)
-
 	CSet("basic-attr:"+google_id+"!ret", fuse.OK)
-	return fuse.OK
+	TheLogger.InfoF("Updated BasicAttr for %s (%s)", google_id, name)
+}
+
+func DriveOpenDir(google_id string) fuse.Status {
+	_start := time.Now()
+	defer PrintCallDuration("DriveOpenDir", &_start)
+
+	// Ensure we are the only ones analysing this file
+	CLock("OpenDir:" + google_id + "!meta-mux")
+	defer CUnlock("OpenDir:" + google_id + "!meta-mux")
+	// Check for cache
+	TheLogger.DebugF("DriveOpenDir %s", google_id)
+	found := CFound("OpenDir:"+google_id)
+	if found {
+		// Ask for an update (async) if the time has come
+		now := time.Now().Unix()
+		if now >= CGet("OpenDir:"+google_id+"!RefrehTime").(int64) && CGet("OpenDir:"+google_id+"!working").(bool) == false {
+			TheLogger.InfoF("DriveOpenDir (refreshing) %s", google_id)
+			go ActualDriveOpenDir(google_id)
+		}
+		return CGet("OpenDir:" + google_id + "!ret").(fuse.Status)
+	}
+
+	// Wait for it to finish
+	return ActualDriveOpenDir(google_id)
 }

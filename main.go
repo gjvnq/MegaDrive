@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"log"
 	"net/url"
 	"os"
 	"os/signal"
@@ -190,15 +189,19 @@ func main_fuse() {
 	go func() {
 		for _ = range sig_chan {
 			Unmounting = true
-			log.Println("Unmounting...")
+			TheLogger.Notice("Unmounting...")
 			FUSEServer.Unmount()
 			FUSEServer.Unmount()
 			FUSEServer.Unmount()
-			log.Println("Unmounted")
+			TheLogger.Notice("Unmounted")
 			// os.Exit(0)
 		}
 	}()
 
+	// Pre Cache
+	TheLogger.Notice("Pre-caching...")
+	DriveGetBasics("root")
 	// Start things
+	TheLogger.Notice("Serving...")
 	FUSEServer.Serve()
 }
