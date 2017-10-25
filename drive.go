@@ -8,7 +8,33 @@ import (
 
 const GENERAL_UPDATE_DELTA = 15 * time.Minute
 
+// When we need a new file's info, we add its id to ChBasicInfoReq which consumed ONLY by DriveGetBasicsConsumer. We also add our own (locked) mutex to MapBasicInfoAns. This way, whenever some function loads/reloads the piece of information we need, all functions waiting for it will have theirs mutexes unlocked, telling them that the information they need is now on the cache.
+var ChBasicInfoReq = make(chan string, 64)
+var MapBasicInfoAns = make(map[string][]*sync.Mutex)
+var MapBasicInfoAnsMux = *sync.RWMutex
+
+// When we need a new directorie's list, we add its id to ChOpenDirReq which consumed ONLY by DriveOpenDirConsumer. We also add our own (locked) mutex to MapOpenDirAns. This way, whenever some function loads/reloads the piece of information we need, all functions waiting for it will have theirs mutexes unlocked, telling them that the information they need is now on the cache.
+var ChOpenDirReq = make(chan string, 64)
+var MapOpenDirAns = make(map[string][]*sync.Mutex)
+var MapOpenDirAnsMux = *sync.RWMutex
+
 func DriveGetBasics(google_id string) fuse.Status {
+	// Lock the MapBasicInfoAns for editing and add our own answer mutex
+	MapBasicInfoAnsMux.Lock()
+	mux := &sync.Mutex{}
+	if _, b := MapOpenDirAns[google_id]; !b {
+		MapOpenDirAns[google_id] = make([]*sync.Mutex)
+	}
+	MapOpenDirAns[google_id] = append(MapOpenDirAns[google_id], mux)
+	MapBasicInfoAnsMux.Unlock()
+	// Tell the DriveGetBasicsConsumer to load this file's info
+	ChBasicInfoReq <- google_id
+	// Wait for it to finish
+	mux.Lock()
+	return CGet("BasicAttr:" + google_id + ":!ret").(fuse.Status)
+}
+
+func OldDriveGetBasics(google_id string) fuse.Status {
 	_start := time.Now()
 	defer PrintCallDuration("DriveGetBasics", &_start)
 	TheLogger.DebugF("DriveGetBasics %s", google_id)
@@ -35,7 +61,7 @@ func DriveGetBasics(google_id string) fuse.Status {
 	CWGWait("BasicAttr:"+google_id+":!wg")
 }
 
-func ActualDriveGetBasics(google_id string) fuse.Status {
+func OldActualDriveGetBasics(google_id string) fuse.Status {
 	// Only one worker at a time
 	if CGetDef("BasicAttr:"+google_id+":!working", false).(bool) == true {
 		return CGetDef("BasicAttr:" + google_id + ":!ret", fuse.ENODATA).(fuse.Status)
@@ -61,7 +87,7 @@ func ActualDriveGetBasics(google_id string) fuse.Status {
 	return CGet("BasicAttr:" + google_id + ":!ret").(fuse.Status)
 }
 
-func ActualDriveGetBasicsPut(google_id string, name string, mimeType string, size int64, modifiedTime string, createdTime string) {
+func OldActualDriveGetBasicsPut(google_id string, name string, mimeType string, size int64, modifiedTime string, createdTime string) {
 	_start := time.Now()
 	defer PrintCallDuration("ActualDriveGetBasicsPut", &_start)
 
@@ -98,7 +124,7 @@ func ActualDriveGetBasicsPut(google_id string, name string, mimeType string, siz
 	TheLogger.InfoF("Updated BasicAttr for %s (%s)", google_id, name)
 }
 
-func DriveOpenDir(google_id string) (ret_dirs []fuse.DirEntry, ret_code fuse.Status) {
+func OldDriveOpenDir(google_id string) (ret_dirs []fuse.DirEntry, ret_code fuse.Status) {
 	_start := time.Now()
 	defer PrintCallDuration("DriveOpenDir", &_start)
 
@@ -129,7 +155,7 @@ func DriveOpenDir(google_id string) (ret_dirs []fuse.DirEntry, ret_code fuse.Sta
 	return ActualDriveOpenDir(google_id)
 }
 
-func ActualDriveOpenDir(google_id string) (ret_dirs []fuse.DirEntry, ret_code fuse.Status) {
+func OldActualDriveOpenDir(google_id string) (ret_dirs []fuse.DirEntry, ret_code fuse.Status) {
 	ret_dirs = make([]fuse.DirEntry, 0)
 	ret_code = fuse.EIO
 
