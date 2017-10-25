@@ -66,9 +66,18 @@ func (n *MDNode) OnForget() {
 	TheLogger.DebugF("OnForget")
 }
 
-func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (node *nodefs.Inode, code fuse.Status) {
+func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (ret_node *nodefs.Inode, ret_code fuse.Status) {
 	_start := time.Now()
 	defer PrintCallDuration("Lookup", &_start)
+
+	// Save ourselves
+	defer func() {
+		if r := recover(); r != nil {
+			TheLogger.ErrorF("Recovered: %+v", r)
+			ret_node = &nodefs.Inode{}
+			ret_code = fuse.EIO
+		}
+	}()
 
 	TheLogger.DebugF("Lookup (n=%v; out=%v; name=%v; context=%v)", *n, *out, name, *context)
 	// Check for unmounting
@@ -198,8 +207,17 @@ func (n *MDNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
 	return n.ActualOpenDir(context)
 }
 
-func (n *MDNode) ActualOpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
+func (n *MDNode) ActualOpenDir(context *fuse.Context) (ret_dirs []fuse.DirEntry, ret_code fuse.Status) {
 	TheLogger.DebugF("ActualOpenDir (n=%s, context=%v)", n.GoogleId, *context)
+
+	// Save ourselves
+	defer func() {
+		if r := recover(); r != nil {
+			TheLogger.ErrorF("Recovered: %+v", r)
+			ret_dirs = make([]fuse.DirEntry, 0)
+			ret_code = fuse.EIO
+		}
+	}()
 
 	// Call Google Drive
 	r, err := DriveClient.Files.List().
@@ -279,9 +297,17 @@ func (n *MDNode) GetBasics() fuse.Status {
 	return fuse.OK
 }
 
-func (n *MDNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
+func (n *MDNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) (ret_code fuse.Status) {
 	_start := time.Now()
 	defer PrintCallDuration("GetAttr", &_start)
+
+	// Save ourselves
+	defer func() {
+		if r := recover(); r != nil {
+			TheLogger.ErrorF("Recovered: %+v", r)
+			ret_code = fuse.EIO
+		}
+	}()
 
 	TheLogger.DebugF("GetAttr (n=%v; out=%v; file=%v; context=%v)", *n, *out, file, *context)
 	// Check for unmounting
@@ -340,9 +366,18 @@ func (n *MDNode) Fallocate(file nodefs.File, off uint64, size uint64, mode uint3
 	return fuse.ENOSYS
 }
 
-func (n *MDNode) Read(file nodefs.File, dest []byte, off int64, context *fuse.Context) (fuse.ReadResult, fuse.Status) {
+func (n *MDNode) Read(file nodefs.File, dest []byte, off int64, context *fuse.Context) (ret_res fuse.ReadResult, ret_code fuse.Status) {
 	_start := time.Now()
 	defer PrintCallDuration("Read", &_start)
+
+	// Save ourselves
+	defer func() {
+		if r := recover(); r != nil {
+			TheLogger.ErrorF("Recovered: %+v", r)
+			ret_res = nil
+			ret_code = fuse.EIO
+		}
+	}()
 
 	TheLogger.DebugF("Read (len(dest)=%v off=%v context=%v", len(dest), off, context)
 	if file != nil {
