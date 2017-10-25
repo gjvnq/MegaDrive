@@ -34,6 +34,10 @@ type MDNode struct {
 	Ctimensec uint32
 }
 
+func (n *MDNode) IsDir() bool {
+	return n.MimeType == "application/vnd.google-apps.folder"
+}
+
 func (fs *MDNode) OnUnmount() {
 	TheLogger.DebugF("OnUnmount")
 }
@@ -86,6 +90,9 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (ret
 		return nil, fuse.ENODEV
 	}
 
+	// Ensure data will be here
+	go DriveOpenDir(n.GoogleId)
+
 	// Check for cache
 	if CFoundPrefix("Lookup:"+name+":in:"+n.GoogleId+":", "id", "isDir") {
 		new_node := &MDNode{}
@@ -122,7 +129,12 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (ret
 		CSet("Lookup:"+name+":in:"+n.GoogleId+":id", new_node.GoogleId)
 		CSet("Lookup:"+name+":in:"+n.GoogleId+":isDir", isDir)
 		// Preload
-		go n.GetBasics()
+		// TheLogger.DebugF("Preloading (new goroutine) %s", new_node.GoogleId)
+		// go n.GetBasics()
+		// if isDir {
+		// 	TheLogger.DebugF("Preloading directory (new goroutine) %s", new_node.GoogleId)
+		// 	go DriveOpenDir(new_node.GoogleId)
+		// }
 
 		return child, fuse.OK
 	} else {
@@ -187,29 +199,9 @@ func (n *MDNode) Flush(file nodefs.File, openFlags uint32, context *fuse.Context
 	return fuse.ENOSYS
 }
 
-func (n *MDNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
+func (n *MDNode) OpenDir(context *fuse.Context) (ret_dirs []fuse.DirEntry, ret_code fuse.Status) {
 	_start := time.Now()
 	defer PrintCallDuration("OpenDir", &_start)
-
-	TheLogger.DebugF("OpenDir (n=%s, context=%v)", n.GoogleId, *context)
-	// Check for unmounting
-	if Unmounting {
-		TheLogger.DebugF("OpenDir ENODEV (Unmounting)")
-		return nil, fuse.ENODEV
-	}
-
-	// Check cache
-	if ret, found := CGet2("OpenDir:" + n.GoogleId); found {
-		// Order update
-		go n.ActualOpenDir(context)
-		// Return current data
-		return ret.([]fuse.DirEntry), fuse.OK
-	}
-	return n.ActualOpenDir(context)
-}
-
-func (n *MDNode) ActualOpenDir(context *fuse.Context) (ret_dirs []fuse.DirEntry, ret_code fuse.Status) {
-	TheLogger.DebugF("ActualOpenDir (n=%s, context=%v)", n.GoogleId, *context)
 
 	// Save ourselves
 	defer func() {
@@ -220,40 +212,13 @@ func (n *MDNode) ActualOpenDir(context *fuse.Context) (ret_dirs []fuse.DirEntry,
 		}
 	}()
 
-	// Call Google Drive
-	r, err := DriveClient.Files.List().
-		Fields("nextPageToken, files(id, name, modifiedTime, size, mimeType, createdTime)").
-		Q(escape("'?' in parents and trashed = false", n.GoogleId)).
-		Do()
-	if err != nil {
-		TheLogger.ErrorF("Unable to OpenDir %s: %v", n.GoogleId, err)
-		return make([]fuse.DirEntry, 0), fuse.EIO
+	TheLogger.DebugF("OpenDir (n=%s, context=%v)", n.GoogleId, *context)
+	// Check for unmounting
+	if Unmounting {
+		TheLogger.DebugF("OpenDir ENODEV (Unmounting)")
+		return nil, fuse.ENODEV
 	}
-
-	ret := make([]fuse.DirEntry, 0)
-	if len(r.Files) > 0 {
-		// Return files found
-		for _, file := range r.Files {
-			val := fuse.DirEntry{}
-			val.Name = file.Name
-			isDir := file.MimeType == "application/vnd.google-apps.folder"
-			if isDir {
-				val.Mode = fuse.S_IFDIR
-			}
-			ret = append(ret, val)
-			// Cache some stuff
-			CSet("Lookup:"+file.Name+":in:"+n.GoogleId+":id", file.Id)
-			CSet("Lookup:"+file.Name+":in:"+n.GoogleId+":isDir", isDir)
-			// Preload some stuff to make things quicker
-			TheLogger.DebugF("Preloading %s (%s)", file.Id, file.Name)
-			ActualDriveGetBasicsPut(file.Id, file.Name, file.MimeType, file.Size, file.ModifiedTime, file.CreatedTime)
-		}
-		// Save cache
-		CSet("OpenDir:"+n.GoogleId, ret)
-		return ret, fuse.OK
-	} else {
-		return make([]fuse.DirEntry, 0), fuse.ENODATA
-	}
+	return DriveOpenDir(n.GoogleId)
 }
 
 func (n *MDNode) GetXAttr(attribute string, context *fuse.Context) (data []byte, code fuse.Status) {
@@ -284,17 +249,17 @@ func (n *MDNode) GetBasics() fuse.Status {
 	if err != fuse.OK {
 		return err
 	}
-	CRLock("basic-attr:" + n.GoogleId + "!mux")
-	defer CRUnlock("basic-attr:" + n.GoogleId + "!mux")
-	n.Name = CGet("basic-attr:" + n.GoogleId + ":Name").(string)
-	n.MimeType = CGet("basic-attr:" + n.GoogleId + ":MimeType").(string)
-	n.Size = CGet("basic-attr:" + n.GoogleId + ":Size").(uint64)
-	n.Atime = CGet("basic-attr:" + n.GoogleId + ":Atime").(uint64)
-	n.Ctime = CGet("basic-attr:" + n.GoogleId + ":Ctime").(uint64)
-	n.Mtime = CGet("basic-attr:" + n.GoogleId + ":Mtime").(uint64)
-	n.Atimensec = CGet("basic-attr:" + n.GoogleId + ":Atimensec").(uint32)
-	n.Ctimensec = CGet("basic-attr:" + n.GoogleId + ":Ctimensec").(uint32)
-	n.Mtimensec = CGet("basic-attr:" + n.GoogleId + ":Mtimensec").(uint32)
+	CRLock("BasicAttr:" + n.GoogleId + "!mux")
+	defer CRUnlock("BasicAttr:" + n.GoogleId + "!mux")
+	n.Name = CGet("BasicAttr:" + n.GoogleId + ":Name").(string)
+	n.MimeType = CGet("BasicAttr:" + n.GoogleId + ":MimeType").(string)
+	n.Size = CGet("BasicAttr:" + n.GoogleId + ":Size").(uint64)
+	n.Atime = CGet("BasicAttr:" + n.GoogleId + ":Atime").(uint64)
+	n.Ctime = CGet("BasicAttr:" + n.GoogleId + ":Ctime").(uint64)
+	n.Mtime = CGet("BasicAttr:" + n.GoogleId + ":Mtime").(uint64)
+	n.Atimensec = CGet("BasicAttr:" + n.GoogleId + ":Atimensec").(uint32)
+	n.Ctimensec = CGet("BasicAttr:" + n.GoogleId + ":Ctimensec").(uint32)
+	n.Mtimensec = CGet("BasicAttr:" + n.GoogleId + ":Mtimensec").(uint32)
 	return fuse.OK
 }
 
@@ -330,6 +295,16 @@ func (n *MDNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context
 	if err := n.GetBasics(); err != fuse.OK {
 		return err
 	}
+
+	// Preload
+	if n.IsDir() {
+		go func() {
+			TheLogger.DebugF("Preloading directory (new goroutine) %s", n.GoogleId)
+			DriveOpenDir(n.GoogleId)
+			TheLogger.DebugF("Preloaded directory (new goroutine) %s", n.GoogleId)
+		}()
+	}
+
 	out.Size = n.Size
 	out.Atime = n.Atime
 	out.Ctime = n.Ctime

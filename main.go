@@ -43,7 +43,6 @@ func CFound(keys ...string) bool {
 			return false
 		}
 	}
-	TheLogger.DebugNF(1, "Cache HIT for: %+v", keys)
 	return true
 }
 
@@ -55,7 +54,6 @@ func CFoundPrefix(prefix string, keys ...string) bool {
 			return false
 		}
 	}
-	TheLogger.DebugNF(1, "Cache HIT for: %+v", keys)
 	return true
 }
 
