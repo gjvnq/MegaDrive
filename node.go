@@ -39,7 +39,7 @@ func (n *MDNode) StatFs() *fuse.StatfsOut {
 }
 
 func (n *MDNode) SetInode(node *nodefs.Inode) {
-	fmt.Printf("SetInode (%+v)\n", *node)
+	log.Printf("SetInode (%+v)\n", *node)
 	n.inode = node
 }
 
@@ -49,7 +49,7 @@ func (n *MDNode) Deletable() bool {
 }
 
 func (n *MDNode) Inode() *nodefs.Inode {
-	fmt.Printf("Inode (n=%v)\n", *n)
+	log.Printf("Inode (n=%v)\n", *n)
 	return n.inode
 }
 
@@ -58,10 +58,10 @@ func (n *MDNode) OnForget() {
 }
 
 func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (node *nodefs.Inode, code fuse.Status) {
-	fmt.Printf("Lookup (n=%v; out=%v; name=%v; context=%v)\n", *n, *out, name, *context)
+	log.Printf("Lookup (n=%v; out=%v; name=%v; context=%v)\n", *n, *out, name, *context)
 	// Check for unmounting
 	if Unmounting {
-		fmt.Printf("Lookup ENODEV (Unmounting)\n")
+		log.Printf("Lookup ENODEV (Unmounting)\n")
 		return nil, fuse.ENODEV
 	}
 
@@ -76,7 +76,7 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (nod
 	}
 
 	if len(r.Files) == 0 {
-		fmt.Printf("%s -> fuse.ENOENT", name)
+		log.Printf("%s -> fuse.ENOENT\n", name)
 		return nil, fuse.ENOENT
 	} else if len(r.Files) == 1 {
 		new_node := &MDNode{}
@@ -140,7 +140,7 @@ func (n *MDNode) Create(name string, flags uint32, mode uint32, context *fuse.Co
 
 func (n *MDNode) Open(flags uint32, context *fuse.Context) (file nodefs.File, code fuse.Status) {
 	fmt.Println("Open")
-	return nil, fuse.ENOSYS
+	return nil, fuse.OK
 }
 
 func (n *MDNode) Flush(file nodefs.File, openFlags uint32, context *fuse.Context) (code fuse.Status) {
@@ -149,10 +149,10 @@ func (n *MDNode) Flush(file nodefs.File, openFlags uint32, context *fuse.Context
 }
 
 func (n *MDNode) OpenDir(context *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
-	fmt.Printf("OpenDir (n=%v, context=%v)\n", *n, *context)
+	log.Printf("OpenDir (n=%v, context=%v)\n", *n, *context)
 	// Check for unmounting
 	if Unmounting {
-		fmt.Printf("OpenDir ENODEV (Unmounting)\n")
+		log.Printf("OpenDir ENODEV (Unmounting)\n")
 		return nil, fuse.ENODEV
 	}
 	// Call Google Drive
@@ -203,20 +203,47 @@ func (n *MDNode) ListXAttr(context *fuse.Context) (attrs []string, code fuse.Sta
 }
 
 func (n *MDNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) (code fuse.Status) {
-	fmt.Printf("GetAttr (n=%v; out=%v; file=%v; context=%v)\n", *n, *out, file, *context)
+	log.Printf("GetAttr (n=%v; out=%v; file=%v; context=%v)\n", *n, *out, file, *context)
 	// Check for unmounting
 	if Unmounting {
-		fmt.Printf("Lookup GetAttr (Unmounting)\n")
+		log.Printf("Lookup GetAttr (Unmounting)\n")
 		return fuse.ENODEV
 	}
 	if file != nil {
 		return file.GetAttr(out)
 	}
+	// Basics first
 	if n.Inode().IsDir() {
 		out.Mode = fuse.S_IFDIR | 0755
 	} else {
 		out.Mode = fuse.S_IFREG | 0644
 	}
+
+	// Get size, dates, etc.
+	r, err := DriveClient.Files.Get(n.GoogleId).Fields("modifiedTime, size, mimeType, createdTime").Do()
+	if err != nil {
+		log.Printf("Unable to GetAttr %s: %v\n", n.GoogleId, err)
+		return fuse.EIO
+	}
+	out.Size = uint64(r.Size)
+	mtime, err := time.Parse(time.RFC3339, r.ModifiedTime)
+	if err != nil {
+		log.Printf("Unable to GetAttr %s: %v\n", n.GoogleId, err)
+		return fuse.EIO
+	}
+	ctime, err := time.Parse(time.RFC3339, r.CreatedTime)
+	if err != nil {
+		log.Printf("Unable to GetAttr %s: %v\n", n.GoogleId, err)
+		return fuse.EIO
+	}
+	out.Atime = uint64(mtime.Unix())
+	out.Mtime = out.Atime
+	out.Ctime = uint64(ctime.Unix())
+	out.Atimensec = uint32(mtime.UnixNano())
+	out.Mtimensec = out.Atimensec
+	out.Ctimensec = uint32(ctime.UnixNano())
+
+	log.Printf("GetAttr %s -> ctime=%s mtime=%s mime=%s size=%d\n", n.GoogleId, r.CreatedTime, r.ModifiedTime, r.MimeType, r.Size)
 	return fuse.OK
 }
 
@@ -246,11 +273,33 @@ func (n *MDNode) Fallocate(file nodefs.File, off uint64, size uint64, mode uint3
 }
 
 func (n *MDNode) Read(file nodefs.File, dest []byte, off int64, context *fuse.Context) (fuse.ReadResult, fuse.Status) {
-	fmt.Println("Read")
+	log.Printf("Read (len(dest)=%v off=%v context=%v\n", len(dest), off, context)
 	if file != nil {
 		return file.Read(dest, off)
 	}
-	return nil, fuse.ENOSYS
+	// Download file
+	r, err := DriveClient.Files.Get(n.GoogleId).Download()
+	if err != nil {
+		log.Printf("Unable to Read %s: %v\n", n.GoogleId, err)
+		return nil, fuse.EIO
+	}
+	// Read file
+	defer r.Body.Close()
+	_, err = r.Body.Read(dest)
+	if err != nil {
+		log.Printf("Unable to Read %s: %v\n", n.GoogleId, err)
+		return nil, fuse.EIO
+	}
+	log.Printf("Read %s: %+v\n", n.GoogleId, string(dest))
+	// Save file to cache
+	// f, err := os.Create(CacheDir+n.GoogleId)
+	//    if err != nil {
+	//    	log.Printf("Unable to Read %s: (failed to create cache file) %v", n.GoogleId, err)
+	//    }
+	//    ioutil.WriteFile(CacheDir+n.GoogleId, dest, 0660)
+
+	// return fuse.ReadResultData(dest), fuse.OK
+	return fuse.ReadResultData(dest), fuse.OK
 }
 
 func (n *MDNode) Write(file nodefs.File, data []byte, off int64, context *fuse.Context) (written uint32, code fuse.Status) {

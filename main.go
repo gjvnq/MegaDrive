@@ -19,6 +19,7 @@ var FSConn *nodefs.FileSystemConnector
 var FUSEServer *fuse.Server
 var Inode2Id *map_uint64_string
 var Unmounting bool
+var CacheDir string
 
 func main() {
 	main_fuse()
@@ -79,6 +80,7 @@ func main_fuse() {
 		Debug:      *debug,
 	}
 	os.Mkdir(mount_parent+"/.MegaDrive", 0755)
+	CacheDir = mount_parent + "/.MegaDrive/"
 
 	// Mount fs
 	FUSEServer, err = fuse.NewServer(FSConn.RawFS(), mount_point, mOpts)
