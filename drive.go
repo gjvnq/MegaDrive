@@ -31,20 +31,19 @@ func DriveGetBasics(google_id string) fuse.Status {
 	}
 
 	// Wait for it to finish
-	return ActualDriveGetBasics(google_id)
+	go ActualDriveGetBasics(google_id)
+	CWGWait("BasicAttr:"+google_id+":!wg")
 }
 
 func ActualDriveGetBasics(google_id string) fuse.Status {
 	// Only one worker at a time
 	if CGetDef("BasicAttr:"+google_id+":!working", false).(bool) == true {
-		return CGet("BasicAttr:" + google_id + ":!ret").(fuse.Status)
+		return CGetDef("BasicAttr:" + google_id + ":!ret", fuse.ENODATA).(fuse.Status)
 	}
 
 	// Tell other we are working
 	CSet("BasicAttr:"+google_id+":!working", true)
 	defer CSet("BasicAttr:"+google_id+":!working", false)
-	CLock("BasicAttr:" + google_id + ":!w-mux")
-	defer CUnlock("BasicAttr:" + google_id + ":!w-mux")
 
 	_start := time.Now()
 	defer PrintCallDuration("ActualDriveGetBasics", &_start)
