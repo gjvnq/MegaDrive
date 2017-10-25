@@ -21,8 +21,16 @@ func escape(q string, args ...string) string {
 }
 
 type MDNode struct {
-	GoogleId string
-	inode    *nodefs.Inode
+	GoogleId  string
+	inode     *nodefs.Inode
+	MimeType  string
+	Size      uint64
+	Atime     uint64
+	Mtime     uint64
+	Ctime     uint64
+	Atimensec uint32
+	Mtimensec uint32
+	Ctimensec uint32
 }
 
 func (fs *MDNode) OnUnmount() {
@@ -202,7 +210,37 @@ func (n *MDNode) ListXAttr(context *fuse.Context) (attrs []string, code fuse.Sta
 	return nil, fuse.ENOSYS
 }
 
-func (n *MDNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) (code fuse.Status) {
+func (n *MDNode) GetBasics() fuse.Status {
+	// Get size, dates, etc.
+	r, err := DriveClient.Files.Get(n.GoogleId).Fields("modifiedTime, size, mimeType, createdTime").Do()
+	if err != nil {
+		log.Printf("Unable to GetAttr %s: %v\n", n.GoogleId, err)
+		return fuse.EIO
+	}
+	n.MimeType = r.MimeType
+	n.Size = uint64(r.Size)
+	mtime, err := time.Parse(time.RFC3339, r.ModifiedTime)
+	if err != nil {
+		log.Printf("Unable to GetAttr %s: %v\n", n.GoogleId, err)
+		return fuse.EIO
+	}
+	ctime, err := time.Parse(time.RFC3339, r.CreatedTime)
+	if err != nil {
+		log.Printf("Unable to GetAttr %s: %v\n", n.GoogleId, err)
+		return fuse.EIO
+	}
+	log.Printf("%s %s\n", r.ModifiedTime, r.CreatedTime)
+	n.Atime = uint64(mtime.Unix())
+	n.Mtime = n.Atime
+	n.Ctime = uint64(ctime.Unix())
+	n.Atimensec = uint32(mtime.UnixNano())
+	n.Mtimensec = n.Atimensec
+	n.Ctimensec = uint32(ctime.UnixNano())
+
+	return fuse.OK
+}
+
+func (n *MDNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context) fuse.Status {
 	log.Printf("GetAttr (n=%v; out=%v; file=%v; context=%v)\n", *n, *out, file, *context)
 	// Check for unmounting
 	if Unmounting {
@@ -220,30 +258,18 @@ func (n *MDNode) GetAttr(out *fuse.Attr, file nodefs.File, context *fuse.Context
 	}
 
 	// Get size, dates, etc.
-	r, err := DriveClient.Files.Get(n.GoogleId).Fields("modifiedTime, size, mimeType, createdTime").Do()
-	if err != nil {
-		log.Printf("Unable to GetAttr %s: %v\n", n.GoogleId, err)
-		return fuse.EIO
+	if err := n.GetBasics(); err != fuse.OK {
+		return err
 	}
-	out.Size = uint64(r.Size)
-	mtime, err := time.Parse(time.RFC3339, r.ModifiedTime)
-	if err != nil {
-		log.Printf("Unable to GetAttr %s: %v\n", n.GoogleId, err)
-		return fuse.EIO
-	}
-	ctime, err := time.Parse(time.RFC3339, r.CreatedTime)
-	if err != nil {
-		log.Printf("Unable to GetAttr %s: %v\n", n.GoogleId, err)
-		return fuse.EIO
-	}
-	out.Atime = uint64(mtime.Unix())
-	out.Mtime = out.Atime
-	out.Ctime = uint64(ctime.Unix())
-	out.Atimensec = uint32(mtime.UnixNano())
-	out.Mtimensec = out.Atimensec
-	out.Ctimensec = uint32(ctime.UnixNano())
+	out.Size = n.Size
+	out.Atime = n.Atime
+	out.Ctime = n.Ctime
+	out.Mtime = n.Mtime
+	out.Atimensec = n.Atimensec
+	out.Ctimensec = n.Ctimensec
+	out.Mtimensec = n.Mtimensec
 
-	log.Printf("GetAttr %s -> ctime=%s mtime=%s mime=%s size=%d\n", n.GoogleId, r.CreatedTime, r.ModifiedTime, r.MimeType, r.Size)
+	log.Printf("GetAttr %s -> ctime=%d mtime=%d mime=%s size=%d\n", n.GoogleId, out.Ctime, out.Mtime, n.MimeType, out.Size)
 	return fuse.OK
 }
 
