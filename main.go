@@ -4,6 +4,7 @@ import (
 	"flag"
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
+	"github.com/patrickmn/go-cache"
 	"github.com/syndtr/goleveldb/leveldb"
 	"log"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"time"
 )
 
 var RootNode = &MDNode{}
@@ -20,9 +22,46 @@ var FUSEServer *fuse.Server
 var Inode2Id *map_uint64_string
 var Unmounting bool
 var CacheDir string
+var MemCache *cache.Cache
 
 func main() {
 	main_fuse()
+}
+
+func CGet2(key string) (interface{}, bool) {
+	return MemCache.Get(key)
+}
+
+func CFound(keys ...string) bool {
+	for _, key := range keys {
+		if _, found := MemCache.Get(key); !found {
+			log.Printf("Cache MISS for %s in %+v\n", key, keys)
+			return false
+		}
+	}
+	log.Printf("Cache HIT for: %+v\n", keys)
+	return true
+}
+
+func CFoundPrefix(prefix string, keys ...string) bool {
+	for _, key := range keys {
+		key = prefix + key
+		if _, found := MemCache.Get(key); !found {
+			log.Printf("Cache MISS for %s in %+v\n", key, keys)
+			return false
+		}
+	}
+	log.Printf("Cache HIT for: %+v\n", keys)
+	return true
+}
+
+func CGet(key string) interface{} {
+	v, _ := MemCache.Get(key)
+	return v
+}
+
+func CSet(key string, val interface{}) {
+	MemCache.Set(key, val, 0)
 }
 
 func file_in_config(file string) (string, error) {
@@ -81,6 +120,7 @@ func main_fuse() {
 	}
 	os.Mkdir(mount_parent+"/.MegaDrive", 0755)
 	CacheDir = mount_parent + "/.MegaDrive/"
+	MemCache = cache.New(5*time.Minute, 5*time.Minute)
 
 	// Mount fs
 	FUSEServer, err = fuse.NewServer(FSConn.RawFS(), mount_point, mOpts)

@@ -23,6 +23,7 @@ func escape(q string, args ...string) string {
 type MDNode struct {
 	GoogleId  string
 	inode     *nodefs.Inode
+	Name      string
 	MimeType  string
 	Size      uint64
 	Atime     uint64
@@ -73,9 +74,21 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (nod
 		return nil, fuse.ENODEV
 	}
 
+	// Check for cache
+	if CFound("Lookup:"+name+":in:"+n.GoogleId+":id", "Lookup:"+name+":in:"+n.GoogleId+":isDir") {
+		log.Printf("Cache HIT\n")
+		new_node := &MDNode{}
+		new_node.GoogleId = CGet("Lookup:" + name + ":in:" + n.GoogleId + ":id").(string)
+		isDir := CGet("Lookup:" + name + ":in:" + n.GoogleId + ":isDir").(bool)
+		child := n.Inode().NewChild(name, isDir, new_node)
+		child.Node().GetAttr(out, nil, context)
+		log.Printf("%s -> fuse.OK", name)
+		return child, fuse.OK
+	}
+
 	// Call Google Drive
 	r, err := DriveClient.Files.List().
-		Fields("nextPageToken, files(id, name, mimeType)").
+		Fields("files(id, mimeType)").
 		Q(escape("'?' in parents and name = '?' and trashed = false", n.GoogleId, name)).
 		Do()
 	if err != nil {
@@ -93,6 +106,11 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (nod
 		log.Printf("%s -> fuse.OK", name)
 		child := n.Inode().NewChild(name, isDir, new_node)
 		child.Node().GetAttr(out, nil, context)
+
+		// Save cache
+		CSet("Lookup:"+name+":in:"+n.GoogleId+":id", new_node.GoogleId)
+		CSet("Lookup:"+name+":in:"+n.GoogleId+":isDir", isDir)
+
 		return child, fuse.OK
 	} else {
 		log.Printf("%s -> fuse.EIO (%d) %+v", name, len(r.Files), r.Files)
@@ -211,12 +229,27 @@ func (n *MDNode) ListXAttr(context *fuse.Context) (attrs []string, code fuse.Sta
 }
 
 func (n *MDNode) GetBasics() fuse.Status {
+	// Check for cache
+	if CFoundPrefix("basic-attr:"+n.GoogleId+":", "Name", "MimeType", "Size", "Atime", "Ctime", "Mtime", "Atimensec", "Ctimensec", "Mtimensec") {
+		n.Name = CGet("basic-attr:" + n.GoogleId + ":Name").(string)
+		n.MimeType = CGet("basic-attr:" + n.GoogleId + ":MimeType").(string)
+		n.Size = CGet("basic-attr:" + n.GoogleId + ":Size").(uint64)
+		n.Atime = CGet("basic-attr:" + n.GoogleId + ":Atime").(uint64)
+		n.Ctime = CGet("basic-attr:" + n.GoogleId + ":Ctime").(uint64)
+		n.Mtime = CGet("basic-attr:" + n.GoogleId + ":Mtime").(uint64)
+		n.Atimensec = CGet("basic-attr:" + n.GoogleId + ":Atimensec").(uint32)
+		n.Ctimensec = CGet("basic-attr:" + n.GoogleId + ":Ctimensec").(uint32)
+		n.Mtimensec = CGet("basic-attr:" + n.GoogleId + ":Mtimensec").(uint32)
+		return fuse.OK
+	}
+
 	// Get size, dates, etc.
 	r, err := DriveClient.Files.Get(n.GoogleId).Fields("modifiedTime, size, mimeType, createdTime").Do()
 	if err != nil {
 		log.Printf("Unable to GetAttr %s: %v\n", n.GoogleId, err)
 		return fuse.EIO
 	}
+	n.Name = r.Name
 	n.MimeType = r.MimeType
 	n.Size = uint64(r.Size)
 	mtime, err := time.Parse(time.RFC3339, r.ModifiedTime)
@@ -236,6 +269,17 @@ func (n *MDNode) GetBasics() fuse.Status {
 	n.Atimensec = uint32(mtime.UnixNano())
 	n.Mtimensec = n.Atimensec
 	n.Ctimensec = uint32(ctime.UnixNano())
+
+	// Set cache
+	CSet("basic-attr:"+n.GoogleId+":Name", n.Name)
+	CSet("basic-attr:"+n.GoogleId+":MimeType", n.MimeType)
+	CSet("basic-attr:"+n.GoogleId+":Size", n.Size)
+	CSet("basic-attr:"+n.GoogleId+":Atime", n.Atime)
+	CSet("basic-attr:"+n.GoogleId+":Ctime", n.Ctime)
+	CSet("basic-attr:"+n.GoogleId+":Mtime", n.Mtime)
+	CSet("basic-attr:"+n.GoogleId+":Atimensec", n.Atimensec)
+	CSet("basic-attr:"+n.GoogleId+":Ctimensec", n.Ctimensec)
+	CSet("basic-attr:"+n.GoogleId+":Mtimensec", n.Mtimensec)
 
 	return fuse.OK
 }
