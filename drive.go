@@ -8,12 +8,12 @@ import (
 
 const GENERAL_UPDATE_DELTA = 15 * time.Minute
 
-// When we need a new file's info, we add its id to ChBasicInfoReq which consumed ONLY by DriveGetBasicsConsumer. We also add our own (locked) mutex to MapBasicInfoAns. This way, whenever some function loads/reloads the piece of information we need, all functions waiting for it will have theirs mutexes unlocked, telling them that the information they need is now on the cache.
+// When we need a new file's info, we add its id to ChBasicInfoReq which consumed ONLY by DriveGetBasicsConsumer. We also add our own (locked) mutex to MapBasicInfoAns. This way, whenever some function loads/reloads the piece of information we need, all functions waiting for it will have theirs mutexes unlocked, telling them that the information they need is now on the cache. DriveGetBasicsConsumer is smart enough to efficiently handle the same file id being multiple times on ChBasicInfoReq.
 var ChBasicInfoReq = make(chan string, 64)
 var MapBasicInfoAns = make(map[string][]*sync.Mutex)
 var MapBasicInfoAnsMux = *sync.RWMutex
 
-// When we need a new directorie's list, we add its id to ChOpenDirReq which consumed ONLY by DriveOpenDirConsumer. We also add our own (locked) mutex to MapOpenDirAns. This way, whenever some function loads/reloads the piece of information we need, all functions waiting for it will have theirs mutexes unlocked, telling them that the information they need is now on the cache.
+// When we need a new directories list, we add its id to ChOpenDirReq which consumed ONLY by DriveOpenDirConsumer. We also add our own (locked) mutex to MapOpenDirAns. This way, whenever some function loads/reloads the piece of information we need, all functions waiting for it will have theirs mutexes unlocked, telling them that the information they need is now on the cache. DriveOpenDirConsumer is smart enough to efficiently handle the same file id being multiple times on ChOpenDirReq.
 var ChOpenDirReq = make(chan string, 64)
 var MapOpenDirAns = make(map[string][]*sync.Mutex)
 var MapOpenDirAnsMux = *sync.RWMutex
