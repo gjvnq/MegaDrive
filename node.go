@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -21,17 +22,19 @@ func escape(q string, args ...string) string {
 }
 
 type MDNode struct {
-	GoogleId  string
-	inode     *nodefs.Inode
-	Name      string
-	MimeType  string
-	Size      uint64
-	Atime     uint64
-	Mtime     uint64
-	Ctime     uint64
-	Atimensec uint32
-	Mtimensec uint32
-	Ctimensec uint32
+	GoogleId   string
+	inode      *nodefs.Inode
+	Name       string
+	MimeType   string
+	MD5        string
+	Size       uint64
+	Atime      uint64
+	Mtime      uint64
+	Ctime      uint64
+	Atimensec  uint32
+	Mtimensec  uint32
+	Ctimensec  uint32
+	cache_file *os.File
 }
 
 func (n *MDNode) IsDir() bool {
@@ -68,6 +71,11 @@ func (n *MDNode) Inode() *nodefs.Inode {
 
 func (n *MDNode) OnForget() {
 	TheLogger.DebugF("OnForget")
+	if n.cache_file != nil {
+		if err := n.cache_file.Close(); err != nil {
+			TheLogger.WarningF("Failed to close cache file for %s: %v", n.GoogleId, err)
+		}
+	}
 }
 
 func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (ret_node *nodefs.Inode, ret_code fuse.Status) {
@@ -253,6 +261,7 @@ func (n *MDNode) GetBasics() fuse.Status {
 	defer CRUnlock("BasicAttr:" + n.GoogleId + "!mux")
 	n.Name = CGet("BasicAttr:" + n.GoogleId + ":Name").(string)
 	n.MimeType = CGet("BasicAttr:" + n.GoogleId + ":MimeType").(string)
+	n.MD5 = CGet("BasicAttr:" + n.GoogleId + ":MD5").(string)
 	n.Size = CGet("BasicAttr:" + n.GoogleId + ":Size").(uint64)
 	n.Atime = CGet("BasicAttr:" + n.GoogleId + ":Atime").(uint64)
 	n.Ctime = CGet("BasicAttr:" + n.GoogleId + ":Ctime").(uint64)
@@ -342,6 +351,7 @@ func (n *MDNode) Fallocate(file nodefs.File, off uint64, size uint64, mode uint3
 func (n *MDNode) Read(file nodefs.File, dest []byte, off int64, context *fuse.Context) (ret_res fuse.ReadResult, ret_code fuse.Status) {
 	_start := time.Now()
 	defer PrintCallDuration("Read", &_start)
+	var err error
 
 	// Save ourselves
 	defer func() {
@@ -353,32 +363,22 @@ func (n *MDNode) Read(file nodefs.File, dest []byte, off int64, context *fuse.Co
 	}()
 
 	TheLogger.DebugF("Read (len(dest)=%v off=%v context=%v", len(dest), off, context)
-	if file != nil {
-		return file.Read(dest, off)
+	sts := DriveRead(n.GoogleId)
+	if sts != fuse.OK {
+		TheLogger.ErrorF("Unable to Read %s: %v", n.GoogleId, sts)
+		return nil, sts
 	}
-	// Download file
-	r, err := DriveClient.Files.Get(n.GoogleId).Download()
+	if n.cache_file != nil {
+		if err := n.cache_file.Close(); err != nil {
+			TheLogger.WarningF("Unable to Read %s: failed to close previous file: %v", n.GoogleId, err)
+		}
+	}
+	n.cache_file, err = os.Open(CacheDir + n.GoogleId)
 	if err != nil {
 		TheLogger.ErrorF("Unable to Read %s: %v", n.GoogleId, err)
 		return nil, fuse.EIO
 	}
-	// Read file
-	defer r.Body.Close()
-	_, err = r.Body.Read(dest)
-	if err != nil {
-		TheLogger.ErrorF("Unable to Read %s: %v", n.GoogleId, err)
-		return nil, fuse.EIO
-	}
-	TheLogger.DebugF("Read %s: %+v", n.GoogleId, string(dest))
-	// Save file to cache
-	// f, err := os.Create(CacheDir+n.GoogleId)
-	//    if err != nil {
-	//    	TheLogger.ErrorF("Unable to Read %s: (failed to create cache file) %v", n.GoogleId, err)
-	//    }
-	//    ioutil.WriteFile(CacheDir+n.GoogleId, dest, 0660)
-
-	// return fuse.ReadResultData(dest), fuse.OK
-	return fuse.ReadResultData(dest), fuse.OK
+	return fuse.ReadResultFd(n.cache_file.Fd(), off, len(dest)), fuse.OK
 }
 
 func (n *MDNode) Write(file nodefs.File, data []byte, off int64, context *fuse.Context) (written uint32, code fuse.Status) {

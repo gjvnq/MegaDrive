@@ -200,6 +200,7 @@ func main_fuse() {
 	for i := 0; i < 3; i++ {
 		go DriveGetBasicsConsumer()
 		go DriveOpenDirConsumer()
+		go DriveReadConsumer()
 	}
 	// Pre Cache
 	TheLogger.Notice("Pre-caching...")
