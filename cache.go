@@ -1,14 +1,83 @@
 package main
 
-// import (
-// 	"log"
-// )
+import "sync"
 
-// func save_to_db(key string, value interface{}) {
-// 	// Encode in gob
+func CGet2(key string) (interface{}, bool) {
+	return MemCache.Get(key)
+}
 
-// 	err = DB.Put([]byte(key), RootNode.Inode(), nil)
-// 	if err != nil {
-// 		log.Printf("Failed to write root inode: %v\n", err)
-// 	}
-// }
+func CFound(keys ...string) bool {
+	for _, key := range keys {
+		if _, found := MemCache.Get(key); !found {
+			Log.DebugNF(1, "Cache MISS for %s in %+v", key, keys)
+			return false
+		}
+	}
+	return true
+}
+
+func CFoundPrefix(prefix string, keys ...string) bool {
+	for _, key := range keys {
+		key = prefix + key
+		if _, found := MemCache.Get(key); !found {
+			Log.DebugNF(1, "Cache MISS for %s in %+v", key, keys)
+			return false
+		}
+	}
+	return true
+}
+
+func CGet(key string) interface{} {
+	v, _ := MemCache.Get(key)
+	return v
+}
+
+func CGetDef(key string, def interface{}) interface{} {
+	v, f := MemCache.Get(key)
+	if f {
+		return v
+	}
+	return def
+}
+
+func CGetRWMutex(key string) *sync.RWMutex {
+	v, f := MemCache.Get(key)
+	if f {
+		return v.(*sync.RWMutex)
+	}
+	// Create mutex
+	mux := &sync.RWMutex{}
+	MemCache.Set(key, mux, -1)
+	return mux
+}
+
+func CUnlock(key string) {
+	mux := CGetRWMutex(key)
+	mux.Unlock()
+}
+
+func CRUnlock(key string) {
+	mux := CGetRWMutex(key)
+	mux.RUnlock()
+}
+
+func CRUnlockIf(key string, cond *bool) {
+	if *cond {
+		mux := CGetRWMutex(key)
+		mux.RUnlock()
+	}
+}
+
+func CLock(key string) {
+	mux := CGetRWMutex(key)
+	mux.Lock()
+}
+
+func CRLock(key string) {
+	mux := CGetRWMutex(key)
+	mux.RLock()
+}
+
+func CSet(key string, val interface{}) {
+	MemCache.Set(key, val, 0)
+}

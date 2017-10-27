@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"os/user"
+	"path/filepath"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -53,6 +56,17 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 // It returns the generated credential path/filename.
 func tokenCacheFile() (string, error) {
 	return file_in_config("quickstart.json")
+}
+
+func file_in_config(file string) (string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	tokenCacheDir := filepath.Join(usr.HomeDir, ".config", "MegaDrive")
+	os.MkdirAll(tokenCacheDir, 0700)
+	return filepath.Join(tokenCacheDir,
+		url.QueryEscape(file)), err
 }
 
 // tokenFromFile retrieves a Token from a given file path.

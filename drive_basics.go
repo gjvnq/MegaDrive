@@ -42,20 +42,20 @@ func DriveGetBasics(google_id string) fuse.Status {
 }
 
 func DriveGetBasicsConsumer() {
-	TheLogger.Notice("DriveGetBasicsConsumer: Started")
+	Log.Notice("DriveGetBasicsConsumer: Started")
 	for {
 		google_id := ""
 		select {
 		case google_id = <-ChBasicInfoReq:
-			TheLogger.DebugF("DriveGetBasicsConsumer: Loaded %s from ChBasicInfoReq", google_id)
+			Log.DebugF("DriveGetBasicsConsumer: Loaded %s from ChBasicInfoReq", google_id)
 		case google_id = <-ChBasicInfoReqLP:
-			TheLogger.DebugF("DriveGetBasicsConsumer: Loaded %s from ChBasicInfoReqLP", google_id)
+			Log.DebugF("DriveGetBasicsConsumer: Loaded %s from ChBasicInfoReqLP", google_id)
 		}
 		_start := time.Now()
 		// Check for cached copy
 		flag_working := CGetDef("BasicAttr:"+google_id+":!working", false).(bool) == true
 		if flag_working {
-			TheLogger.DebugF("DriveGetBasicsConsumer: Skipping %s", google_id)
+			Log.DebugF("DriveGetBasicsConsumer: Skipping %s", google_id)
 			continue
 		}
 		flag_refresh := CGetDef("BasicAttr:"+google_id+":!RefrehTime", int64(0)).(int64) < time.Now().Unix()
@@ -69,7 +69,7 @@ func DriveGetBasicsConsumer() {
 		}
 		MapBasicInfoAns[google_id] = make([]*sync.Mutex, 0)
 		MapBasicInfoAnsMux.Unlock()
-		TheLogger.DebugF("DriveGetBasicsConsumer: unlocked mutexes for %s", google_id)
+		Log.DebugF("DriveGetBasicsConsumer: unlocked mutexes for %s", google_id)
 		PrintCallDuration("DriveGetBasicsConsumer", &_start)
 	}
 }
@@ -78,25 +78,25 @@ func DriveGetBasicsConsumerCore(google_id string) (ret_code fuse.Status) {
 	// Save ourselves
 	defer func() {
 		if r := recover(); r != nil {
-			TheLogger.ErrorF("Recovered: %+v", r)
+			Log.ErrorF("Recovered: %+v", r)
 			ret_code = fuse.EIO
 		}
 	}()
 
 	_start := time.Now()
 	defer PrintCallDuration("DriveGetBasicsConsumerCore", &_start)
-	TheLogger.InfoF("DriveGetBasicsConsumerCore: Loading %s from the Internet", google_id)
+	Log.InfoF("DriveGetBasicsConsumerCore: Loading %s from the Internet", google_id)
 
 	CSet("BasicAttr:"+google_id+":!working", true)
 	defer CSet("BasicAttr:"+google_id+":!working", false)
 
 	r, err := DriveClient.Files.Get(google_id).Fields("name, md5Checksum, modifiedTime, size, mimeType, createdTime").Do()
 	if err != nil {
-		TheLogger.ErrorF("Unable to GetAttr %s: %v", google_id, err)
+		Log.ErrorF("Unable to GetAttr %s: %v", google_id, err)
 		CSet("BasicAttr:"+google_id+":!ret", fuse.EIO)
 		return fuse.EIO
 	}
-	TheLogger.InfoF("DriveGetBasicsConsumerCore: LOADED %s (%s) from the Internet", google_id, r.Name)
+	Log.InfoF("DriveGetBasicsConsumerCore: LOADED %s (%s) from the Internet", google_id, r.Name)
 
 	// Set cache
 	ret := DriveGetBasicsPut(google_id, r.Name, r.MimeType, r.Md5Checksum, r.Size, r.ModifiedTime, r.CreatedTime)
@@ -107,13 +107,13 @@ func DriveGetBasicsPut(google_id string, name string, mimeType string, md5 strin
 	// Parse times
 	mtime, err := time.Parse(time.RFC3339, modifiedTime)
 	if err != nil {
-		TheLogger.ErrorF("Unable to GetAttr %s: %v", google_id, err)
+		Log.ErrorF("Unable to GetAttr %s: %v", google_id, err)
 		CSet("BasicAttr:"+google_id+":!ret", fuse.EIO)
 		return fuse.EIO
 	}
 	ctime, err := time.Parse(time.RFC3339, createdTime)
 	if err != nil {
-		TheLogger.ErrorF("Unable to GetAttr %s: %v", google_id, err)
+		Log.ErrorF("Unable to GetAttr %s: %v", google_id, err)
 		CSet("BasicAttr:"+google_id+":!ret", fuse.EIO)
 		return fuse.EIO
 	}
@@ -135,6 +135,6 @@ func DriveGetBasicsPut(google_id string, name string, mimeType string, md5 strin
 	CSet("BasicAttr:"+google_id+":Ctimensec", uint32(ctime.UnixNano()))
 	CSet("BasicAttr:"+google_id+":Mtimensec", uint32(mtime.UnixNano()))
 	CSet("BasicAttr:"+google_id+":!ret", fuse.OK)
-	TheLogger.InfoF("Updated BasicAttr for %s (%s)", google_id, name)
+	Log.InfoF("Updated BasicAttr for %s (%s)", google_id, name)
 	return fuse.OK
 }

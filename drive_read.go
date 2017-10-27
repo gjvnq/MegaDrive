@@ -39,7 +39,7 @@ func DriveRead(google_id string) fuse.Status {
 	// Wait for it to finish (yes, it is a hack/gambiarra)
 	mux.Lock()
 	mux.Lock()
-	TheLogger.Notice(google_id)
+	Log.Notice(google_id)
 	return CGet("Read:" + google_id + ":!ret").(fuse.Status)
 }
 
@@ -53,21 +53,21 @@ func file_mtime(path string) (mtime int64) {
 }
 
 func DriveReadConsumer() {
-	TheLogger.Notice("DriveReadConsumer: Started")
+	Log.Notice("DriveReadConsumer: Started")
 	for {
 		google_id := ""
 		select {
 		case google_id = <-ChReadReq:
-			TheLogger.DebugF("DriveReadConsumer: Loaded %s from ChReadReq", google_id)
+			Log.DebugF("DriveReadConsumer: Loaded %s from ChReadReq", google_id)
 		case google_id = <-ChReadReqLP:
-			TheLogger.DebugF("DriveReadConsumer: Loaded %s from ChReadReqLP", google_id)
+			Log.DebugF("DriveReadConsumer: Loaded %s from ChReadReqLP", google_id)
 		}
 		_start := time.Now()
 		DriveGetBasics(google_id)
 		// Check for some other goroutine also working on this
 		flag_working := CGetDef("Read:"+google_id+":!working", false).(bool) == true
 		if flag_working {
-			TheLogger.DebugF("DriveReadConsumer: Skipping %s", google_id)
+			Log.DebugF("DriveReadConsumer: Skipping %s", google_id)
 			continue
 		}
 		// Refresh file if the server version is newer
@@ -84,7 +84,7 @@ func DriveReadConsumer() {
 		}
 		MapReadAns[google_id] = make([]*sync.Mutex, 0)
 		MapReadAnsMux.Unlock()
-		TheLogger.DebugF("DriveReadConsumer: unlocked mutexes for %s", google_id)
+		Log.DebugF("DriveReadConsumer: unlocked mutexes for %s", google_id)
 		PrintCallDuration("DriveReadConsumer", &_start)
 	}
 }
@@ -93,14 +93,14 @@ func DriveReadConsumerCore(google_id string) (ret_code fuse.Status) {
 	// Save ourselves
 	defer func() {
 		if r := recover(); r != nil {
-			TheLogger.ErrorF("Recovered: %+v", r)
+			Log.ErrorF("Recovered: %+v", r)
 			ret_code = fuse.EIO
 		}
 	}()
 
 	_start := time.Now()
 	defer PrintCallDuration("DriveReadConsumerCore", &_start)
-	TheLogger.InfoF("DriveReadConsumerCore: Loading %s from the Internet", google_id)
+	Log.InfoF("DriveReadConsumerCore: Loading %s from the Internet", google_id)
 
 	CSet("Read:"+google_id+":!ret", fuse.EIO)
 	CSet("Read:"+google_id+":!working", true)
@@ -111,25 +111,25 @@ func DriveReadConsumerCore(google_id string) (ret_code fuse.Status) {
 	CSet("Read:"+google_id+":!Mtime", now)
 	r, err := DriveClient.Files.Get(google_id).Download()
 	if err != nil {
-		TheLogger.ErrorF("Unable to Read %s: %v", google_id, err)
+		Log.ErrorF("Unable to Read %s: %v", google_id, err)
 		return fuse.EIO
 	}
-	TheLogger.InfoF("DriveReadConsumerCore: LOADED %s from the Internet", google_id)
+	Log.InfoF("DriveReadConsumerCore: LOADED %s from the Internet", google_id)
 	// Open file
 	w, err := os.OpenFile(CacheDir+google_id, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
-		TheLogger.ErrorF("Unable to Read %s: %v", google_id, err)
+		Log.ErrorF("Unable to Read %s: %v", google_id, err)
 		return fuse.EIO
 	}
 	// Save file
 	buf := bufio.NewReader(r.Body)
 	_, err = buf.WriteTo(w)
 	if err != nil {
-		TheLogger.ErrorF("Unable to Read %s: %v", google_id, err)
+		Log.ErrorF("Unable to Read %s: %v", google_id, err)
 		return fuse.EIO
 	}
 
-	TheLogger.InfoF("DriveReadConsumerCore: SAVED %s from the Internet on %s", google_id, CacheDir+google_id)
+	Log.InfoF("DriveReadConsumerCore: SAVED %s from the Internet on %s", google_id, CacheDir+google_id)
 	CSet("Read:"+google_id+":!ret", fuse.OK)
 	return fuse.OK
 }
