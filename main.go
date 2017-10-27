@@ -62,7 +62,7 @@ func main() {
 		FsName:     mount_point,
 		Debug:      *fuse_debug,
 	}
-	CacheDir = mount_parent + "/.MegaDrive" + mount_base + "/"
+	CacheDir = mount_parent + "/.MegaDrive-" + mount_base + "/"
 	os.MkdirAll(CacheDir, 0755)
 	os.MkdirAll(PathInCache("config"), 0755)
 	os.MkdirAll(PathInCache("nodes"), 0755)
@@ -80,6 +80,10 @@ func main() {
 		Log.Fatal(err.Error())
 	}
 	defer DB.Close()
+	DB.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(StdBucket)
+		return err
+	})
 
 	// Load Google Drive
 	DriveClient = GetDriveClient()

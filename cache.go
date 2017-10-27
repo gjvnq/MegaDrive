@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -152,11 +151,16 @@ func CSet_bytes(key string, val []byte) {
 }
 
 func CSet(key string, val interface{}) {
-	byt, err := json.Marshal(val)
-	if err != nil {
-		Log.PanicF("Failed to encode json: %v", err)
+	switch v := val.(type) {
+	case string:
+		CSet_bytes(key, []byte(v))
+	default:
+		byt, err := json.Marshal(val)
+		if err != nil {
+			Log.PanicF("Failed to encode json: %v", err)
+		}
+		CSet_bytes(key, byt)
 	}
-	CSet_bytes(key, byt)
 }
 
 func CGetRWMutex(key string) *sync.RWMutex {

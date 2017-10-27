@@ -34,6 +34,7 @@ type MDNode struct {
 	Atimensec  uint32
 	Mtimensec  uint32
 	Ctimensec  uint32
+	GotBasics  bool
 	cache_file *os.File
 }
 
@@ -260,6 +261,10 @@ func (n *MDNode) GetBasics() fuse.Status {
 	_start := time.Now()
 	defer PrintCallDuration("GetBasics", &_start)
 
+	if n.GotBasics {
+		return fuse.OK
+	}
+
 	err := DriveGetBasics(n.GoogleId)
 	if err != fuse.OK {
 		return err
@@ -276,6 +281,8 @@ func (n *MDNode) GetBasics() fuse.Status {
 	n.Atimensec = CGetDef_uint32("BasicAttr:"+n.GoogleId+":Atimensec", 0)
 	n.Ctimensec = CGetDef_uint32("BasicAttr:"+n.GoogleId+":Ctimensec", 0)
 	n.Mtimensec = CGetDef_uint32("BasicAttr:"+n.GoogleId+":Mtimensec", 0)
+
+	n.GotBasics = true
 	return fuse.OK
 }
 
