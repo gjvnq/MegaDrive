@@ -16,7 +16,7 @@ import (
 )
 
 var RootNode = &MDNode{}
-var DB bolt.DB
+var DB *bolt.DB
 var FSConn *nodefs.FileSystemConnector
 var FUSEServer *fuse.Server
 var Inode2Id *map_uint64_string
@@ -75,7 +75,7 @@ func main() {
 	}
 
 	// Load bolt
-	DB, err := bolt.Open(CacheDir+"bolt.db", 0600, nil)
+	DB, err = bolt.Open(CacheDir+"bolt.db", 0600, nil)
 	if err != nil {
 		Log.Fatal(err.Error())
 	}

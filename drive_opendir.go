@@ -38,8 +38,10 @@ func DriveOpenDir(google_id string) ([]fuse.DirEntry, fuse.Status) {
 	// Wait for it to finish (yes, it is a hack/gambiarra)
 	mux.Lock()
 	mux.Lock()
-	ans := CGet("OpenDir:" + google_id).([]fuse.DirEntry)
-	status := CGet("OpenDir:" + google_id + ":!ret").(fuse.Status)
+	var ans []fuse.DirEntry
+	var status fuse.Status
+	CGet("OpenDir:"+google_id, &ans)
+	CGet("OpenDir:"+google_id+":!ret", &status)
 	return ans, status
 }
 
@@ -55,12 +57,13 @@ func DriveOpenDirConsumer() {
 		}
 		_start := time.Now()
 		// Check for cached copy
-		flag_working := CGetDef("OpenDir:"+google_id+":!working", false).(bool) == true
-		if flag_working {
+		flag_working := CGetDef_bool("OpenDir:"+google_id+":!working", false)
+		if flag_working == true {
 			Log.DebugF("DriveOpenDirConsumer: Skipping %s", google_id)
 			continue
 		}
-		flag_refresh := CGetDef("OpenDir:"+google_id+":!RefrehTime", int64(0)).(int64) < time.Now().Unix()
+		refresh_time := CGetDef_int64("OpenDir:"+google_id+":!RefrehTime", 0)
+		flag_refresh := refresh_time < time.Now().Unix()
 		if flag_refresh {
 			DriveOpenDirConsumerCore(google_id)
 		}
@@ -105,7 +108,7 @@ func DriveOpenDirConsumerCore(google_id string) (ret_dirs []fuse.DirEntry, ret_c
 		Log.ErrorF("Unable to OpenDir %s: %v", google_id, err)
 		return
 	}
-	name := CGetDef("BasicAttr:"+google_id+":Name", "?")
+	name := CGet_str("BasicAttr:" + google_id + ":Name")
 	Log.InfoF("DriveOpenDirConsumerCore: LOADED %s (%s) from the Internet", google_id, name)
 
 	ret_dirs = make([]fuse.DirEntry, 0)

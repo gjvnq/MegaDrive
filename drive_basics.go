@@ -38,7 +38,10 @@ func DriveGetBasics(google_id string) fuse.Status {
 	// Wait for it to finish (yes, it is a hack/gambiarra)
 	mux.Lock()
 	mux.Lock()
-	return CGet("BasicAttr:" + google_id + ":!ret").(fuse.Status)
+	// Get return value
+	ret := fuse.EIO
+	CGet("BasicAttr:"+google_id+":!ret", &ret)
+	return ret
 }
 
 func DriveGetBasicsConsumer() {
@@ -53,12 +56,13 @@ func DriveGetBasicsConsumer() {
 		}
 		_start := time.Now()
 		// Check for cached copy
-		flag_working := CGetDef("BasicAttr:"+google_id+":!working", false).(bool) == true
-		if flag_working {
+		flag_working := CGetDef_bool("BasicAttr:"+google_id+":!working", false)
+		if flag_working == true {
 			Log.DebugF("DriveGetBasicsConsumer: Skipping %s", google_id)
 			continue
 		}
-		flag_refresh := CGetDef("BasicAttr:"+google_id+":!RefrehTime", int64(0)).(int64) < time.Now().Unix()
+		refresh_time := CGetDef_int64("BasicAttr:"+google_id+":!RefrehTime", 0)
+		flag_refresh := refresh_time < time.Now().Unix()
 		if flag_refresh {
 			DriveGetBasicsConsumerCore(google_id)
 		}

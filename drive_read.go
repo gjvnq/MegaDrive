@@ -40,7 +40,9 @@ func DriveRead(google_id string) fuse.Status {
 	mux.Lock()
 	mux.Lock()
 	Log.Notice(google_id)
-	return CGet("Read:" + google_id + ":!ret").(fuse.Status)
+	var status fuse.Status
+	CGet("Read:"+google_id+":!ret", &status)
+	return status
 }
 
 func file_mtime(path string) (mtime int64) {
@@ -65,15 +67,15 @@ func DriveReadConsumer() {
 		_start := time.Now()
 		DriveGetBasics(google_id)
 		// Check for some other goroutine also working on this
-		flag_working := CGetDef("Read:"+google_id+":!working", false).(bool) == true
-		if flag_working {
+		flag_working := CGetDef_bool("Read:"+google_id+":!working", false)
+		if flag_working == true {
 			Log.DebugF("DriveReadConsumer: Skipping %s", google_id)
 			continue
 		}
 		// Refresh file if the server version is newer
-		cloud_mtime := CGetDef("BasicAttr:"+google_id+":Mtime", uint64(0)).(uint64)
+		cloud_mtime := CGetDef_int64("BasicAttr:"+google_id+":Mtime", 0)
 		local_mtime := file_mtime(CacheDir + google_id)
-		flag_refresh := int64(cloud_mtime) > local_mtime || cloud_mtime == 0 || local_mtime == 0
+		flag_refresh := cloud_mtime > local_mtime || cloud_mtime == 0 || local_mtime == 0
 		if flag_refresh || !CFound("Read:"+google_id+":!ret") {
 			DriveReadConsumerCore(google_id)
 		}

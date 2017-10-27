@@ -103,9 +103,10 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (ret
 
 	// Check for cache
 	if CFoundPrefix("Lookup:"+name+":in:"+n.GoogleId+":", "id", "isDir") {
+		var isDir bool
 		new_node := &MDNode{}
-		new_node.GoogleId = CGet("Lookup:" + name + ":in:" + n.GoogleId + ":id").(string)
-		isDir := CGet("Lookup:" + name + ":in:" + n.GoogleId + ":isDir").(bool)
+		new_node.GoogleId = CGet_str("Lookup:" + name + ":in:" + n.GoogleId + ":id")
+		isDir = CGet_bool("Lookup:" + name + ":in:" + n.GoogleId + ":isDir")
 		child := n.Inode().NewChild(name, isDir, new_node)
 		child.Node().GetAttr(out, nil, context)
 		Log.DebugF("%s -> fuse.OK", name)
@@ -230,7 +231,13 @@ func (n *MDNode) OpenDir(context *fuse.Context) (ret_dirs []fuse.DirEntry, ret_c
 }
 
 func (n *MDNode) GetXAttr(attribute string, context *fuse.Context) (data []byte, code fuse.Status) {
-	Log.DebugF("GetXAttr")
+	Log.DebugF("GetXAttr (attribute=%v)", attribute)
+	if err := n.GetBasics(); err != fuse.OK {
+		return nil, err
+	}
+	if attribute == "user.google-id" {
+		return []byte(n.GoogleId), fuse.OK
+	}
 	return nil, fuse.ENOATTR
 }
 
@@ -246,7 +253,7 @@ func (n *MDNode) SetXAttr(attr string, data []byte, flags int, context *fuse.Con
 
 func (n *MDNode) ListXAttr(context *fuse.Context) (attrs []string, code fuse.Status) {
 	Log.DebugF("ListXAttr")
-	return nil, fuse.ENOSYS
+	return []string{"user.google-id"}, fuse.OK
 }
 
 func (n *MDNode) GetBasics() fuse.Status {
@@ -259,16 +266,16 @@ func (n *MDNode) GetBasics() fuse.Status {
 	}
 	CRLock("BasicAttr:" + n.GoogleId + "!mux")
 	defer CRUnlock("BasicAttr:" + n.GoogleId + "!mux")
-	n.Name = CGet("BasicAttr:" + n.GoogleId + ":Name").(string)
-	n.MimeType = CGet("BasicAttr:" + n.GoogleId + ":MimeType").(string)
-	n.MD5 = CGet("BasicAttr:" + n.GoogleId + ":MD5").(string)
-	n.Size = CGet("BasicAttr:" + n.GoogleId + ":Size").(uint64)
-	n.Atime = CGet("BasicAttr:" + n.GoogleId + ":Atime").(uint64)
-	n.Ctime = CGet("BasicAttr:" + n.GoogleId + ":Ctime").(uint64)
-	n.Mtime = CGet("BasicAttr:" + n.GoogleId + ":Mtime").(uint64)
-	n.Atimensec = CGet("BasicAttr:" + n.GoogleId + ":Atimensec").(uint32)
-	n.Ctimensec = CGet("BasicAttr:" + n.GoogleId + ":Ctimensec").(uint32)
-	n.Mtimensec = CGet("BasicAttr:" + n.GoogleId + ":Mtimensec").(uint32)
+	n.Name = CGet_str("BasicAttr:" + n.GoogleId + ":Name")
+	n.MimeType = CGet_str("BasicAttr:" + n.GoogleId + ":MimeType")
+	n.MD5 = CGet_str("BasicAttr:" + n.GoogleId + ":MD5")
+	n.Size = CGetDef_uint64("BasicAttr:"+n.GoogleId+":Size", 0)
+	n.Atime = CGetDef_uint64("BasicAttr:"+n.GoogleId+":Atime", 0)
+	n.Ctime = CGetDef_uint64("BasicAttr:"+n.GoogleId+":Ctime", 0)
+	n.Mtime = CGetDef_uint64("BasicAttr:"+n.GoogleId+":Mtime", 0)
+	n.Atimensec = CGetDef_uint32("BasicAttr:"+n.GoogleId+":Atimensec", 0)
+	n.Ctimensec = CGetDef_uint32("BasicAttr:"+n.GoogleId+":Ctimensec", 0)
+	n.Mtimensec = CGetDef_uint32("BasicAttr:"+n.GoogleId+":Mtimensec", 0)
 	return fuse.OK
 }
 
