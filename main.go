@@ -54,9 +54,6 @@ func main() {
 	mount_base := filepath.Base(mount_point)
 	mount_parent, _ := filepath.Abs(mount_point + "/..")
 
-	// Load Google Drive
-	DriveClient = GetDriveClient()
-
 	// Prepare fs
 	FSConn = nodefs.NewFileSystemConnector(RootNode, &nodefs.Options{})
 	mOpts := &fuse.MountOptions{
@@ -64,10 +61,11 @@ func main() {
 		Name:       "MegaDrive",
 		FsName:     mount_point,
 		Debug:      *fuse_debug,
-		Options:    []string{"nonempty"},
 	}
-	os.Mkdir(mount_parent+"/.MegaDrive-"+mount_base, 0755)
 	CacheDir = mount_parent + "/.MegaDrive" + mount_base + "/"
+	os.MkdirAll(CacheDir, 0755)
+	os.MkdirAll(PathInCache("config"), 0755)
+	os.MkdirAll(PathInCache("nodes"), 0755)
 	MemCache = cache.New(15*time.Minute, 30*time.Minute)
 
 	// Mount fs
@@ -77,11 +75,14 @@ func main() {
 	}
 
 	// Load bolt
-	DB, err := bolt.Open("bolt.db", 0600, nil)
+	DB, err := bolt.Open(CacheDir+"bolt.db", 0600, nil)
 	if err != nil {
 		Log.Fatal(err.Error())
 	}
 	defer DB.Close()
+
+	// Load Google Drive
+	DriveClient = GetDriveClient()
 
 	// Prepare to deal with ctrl+c
 	sig_chan := make(chan os.Signal, 20)

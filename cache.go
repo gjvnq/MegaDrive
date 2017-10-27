@@ -1,6 +1,9 @@
 package main
 
-import "sync"
+import (
+	"path/filepath"
+	"sync"
+)
 
 func CGet2(key string) (interface{}, bool) {
 	return MemCache.Get(key)
@@ -80,4 +83,13 @@ func CRLock(key string) {
 
 func CSet(key string, val interface{}) {
 	MemCache.Set(key, val, 0)
+}
+
+func PathInCache(path ...string) string {
+	tmp := make([]string, len(path)+1)
+	tmp[0] = CacheDir
+	for i, p := range path {
+		tmp[i+1] = p
+	}
+	return filepath.Join(tmp...)
 }
