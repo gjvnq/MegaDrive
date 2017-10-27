@@ -120,7 +120,8 @@ func main() {
 	}
 	// Pre Cache
 	Log.Notice("Pre-caching...")
-	DriveGetBasics("root")
+	// DriveOpenDir("root") <---- Problem
+	DriveOpenDirConsumerCore("root")
 	// Start things
 	Log.Notice("Serving...")
 	FUSEServer.Serve()

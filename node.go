@@ -100,6 +100,7 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (ret
 	}
 
 	// Ensure data will be here
+	n.GetBasics()
 	go DriveOpenDir(n.GoogleId)
 
 	// Check for cache
@@ -139,12 +140,12 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (ret
 		CSet("Lookup:"+name+":in:"+n.GoogleId+":id", new_node.GoogleId)
 		CSet("Lookup:"+name+":in:"+n.GoogleId+":isDir", isDir)
 		// Preload
-		// Log.DebugF("Preloading (new goroutine) %s", new_node.GoogleId)
-		// go n.GetBasics()
-		// if isDir {
-		// 	Log.DebugF("Preloading directory (new goroutine) %s", new_node.GoogleId)
-		// 	go DriveOpenDir(new_node.GoogleId)
-		// }
+		Log.DebugF("Preloading (in new goroutine) %s (parent %s %s)", new_node.GoogleId, n.GoogleId, n.Name)
+		if isDir {
+			DriveOpenDirPreload(new_node.GoogleId)
+		} else {
+			DriveGetBasicsPreload(new_node.GoogleId)
+		}
 
 		return child, fuse.OK
 	} else {

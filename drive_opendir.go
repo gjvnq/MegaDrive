@@ -25,19 +25,33 @@ func DriveOpenDirPreload(google_id string) {
 
 // Adds the desired file id to ChOpenDirReq and waits for the answer
 func DriveOpenDir(google_id string) ([]fuse.DirEntry, fuse.Status) {
-	// Lock the MapBasicInfoAns for editing and add our own answer mutex
-	MapOpenDirAnsMux.Lock()
-	mux := &sync.Mutex{}
-	if _, b := MapOpenDirAns[google_id]; !b {
-		MapOpenDirAns[google_id] = make([]*sync.Mutex, 0)
+	// Check for cached copy
+	refresh_time := CGetDef_int64("OpenDir:"+google_id+":!RefrehTime", 0)
+	flag_ask_refresh := refresh_time < time.Now().Unix()
+	flag_must_wait := refresh_time == 0 // Only wait for the answer when absolutely necessary
+
+	if flag_ask_refresh {
+		if flag_must_wait {
+			// Lock the MapBasicInfoAns for editing and add our own answer mutex
+			MapOpenDirAnsMux.Lock()
+			mux := &sync.Mutex{}
+			if _, b := MapOpenDirAns[google_id]; !b {
+				MapOpenDirAns[google_id] = make([]*sync.Mutex, 0)
+			}
+			MapOpenDirAns[google_id] = append(MapOpenDirAns[google_id], mux)
+			mux.Lock()
+			MapOpenDirAnsMux.Unlock()
+			// Tell the DriveGetBasicsConsumer to load this file's info
+			ChOpenDirReq <- google_id
+			// Wait for it to finish
+			mux.Lock()
+		} else {
+			// Tell the DriveGetBasicsConsumer to load this file's info
+			// But do not wait for it
+			ChOpenDirReq <- google_id
+			Log.InfoF("%s will be refreshed later (async)", google_id)
+		}
 	}
-	MapOpenDirAns[google_id] = append(MapOpenDirAns[google_id], mux)
-	mux.Lock()
-	MapOpenDirAnsMux.Unlock()
-	// Tell the DriveGetBasicsConsumer to load this file's info
-	ChOpenDirReq <- google_id
-	// Wait for it to finish
-	mux.Lock()
 	var ans []fuse.DirEntry
 	var status fuse.Status
 	CGet("OpenDir:"+google_id, &ans)
@@ -56,16 +70,11 @@ func DriveOpenDirConsumer() {
 			Log.DebugF("DriveOpenDirConsumer: Loaded %s from ChOpenDirReqLP", google_id)
 		}
 		_start := time.Now()
-		// Check for cached copy
+		// Avoid double work
 		flag_working := CGetDef_bool("OpenDir:"+google_id+":!working", false)
 		if flag_working == true {
 			Log.DebugF("DriveOpenDirConsumer: Skipping %s", google_id)
 			continue
-		}
-		refresh_time := CGetDef_int64("OpenDir:"+google_id+":!RefrehTime", 0)
-		flag_refresh := refresh_time < time.Now().Unix()
-		if flag_refresh {
-			DriveOpenDirConsumerCore(google_id)
 		}
 		// Unlock answer mutexes
 		MapOpenDirAnsMux.Lock()
@@ -110,6 +119,7 @@ func DriveOpenDirConsumerCore(google_id string) (ret_dirs []fuse.DirEntry, ret_c
 	}
 	name := CGet_str("BasicAttr:" + google_id + ":Name")
 	Log.InfoF("DriveOpenDirConsumerCore: LOADED %s (%s) from the Internet", google_id, name)
+	Log.InfoF("DriveOpenDirConsumerCore: %+v", r.Files)
 
 	ret_dirs = make([]fuse.DirEntry, 0)
 	if len(r.Files) > 0 {
@@ -126,13 +136,11 @@ func DriveOpenDirConsumerCore(google_id string) (ret_dirs []fuse.DirEntry, ret_c
 			CSet("Lookup:"+file.Name+":in:"+google_id+":id", file.Id)
 			CSet("Lookup:"+file.Name+":in:"+google_id+":isDir", isDir)
 			// "Preload" some stuff to make things quicker
-			go func() {
-				found := CFoundPrefix("BasicAttr:"+google_id+":", "Name", "MimeType", "Size", "MD5", "Atime", "Ctime", "Mtime", "Atimensec", "Ctimensec", "Mtimensec")
-				if !found {
-					DriveGetBasicsPut(file.Id, file.Name, file.MimeType, file.Md5Checksum, file.Size, file.ModifiedTime, file.CreatedTime)
-					Log.DebugF("Preloaded %s (%s)", file.Id, file.Name)
-				}
-			}()
+			found := CFoundPrefix("BasicAttr:"+google_id+":", "Name", "MimeType", "Size", "MD5", "Atime", "Ctime", "Mtime", "Atimensec", "Ctimensec", "Mtimensec")
+			if !found {
+				DriveGetBasicsPut(file.Id, file.Name, file.MimeType, file.Md5Checksum, file.Size, file.ModifiedTime, file.CreatedTime)
+				Log.DebugF("Preloaded %s (%s)", file.Id, file.Name)
+			}
 		}
 		// Save cache
 		CSet("OpenDir:"+google_id, ret_dirs)
