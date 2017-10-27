@@ -27,6 +27,7 @@ var Unmounting bool
 var CacheDir string
 var MemCache *cache.Cache
 var TheLogger *logger.Logger
+var HackPoint *os.File
 
 func main() {
 	main_fuse()
@@ -140,7 +141,7 @@ func main_fuse() {
 	}
 
 	// Get CLI options
-	debug := flag.Bool("debug", false, "print debugging messages.")
+	fuse_debug := flag.Bool("fuse-debug", false, "print debugging messages.")
 	other := flag.Bool("allow-other", false, "mount with -o allowother.")
 	flag.Parse()
 	mount_point := flag.Arg(0)
@@ -148,6 +149,7 @@ func main_fuse() {
 		TheLogger.FatalF("Usage:\n  MegaDrive MOUNTPOINT")
 	}
 	mount_point, _ = filepath.Abs(mount_point)
+	mount_base := filepath.Base(mount_point)
 	mount_parent, _ := filepath.Abs(mount_point + "/..")
 
 	// Get DB filepath
@@ -161,7 +163,7 @@ func main_fuse() {
 	defer DB.Close()
 
 	// Load Google Drive
-	DriveClient = get_drive_client()
+	DriveClient = GetDriveClient()
 
 	// Prepare fs
 	FSConn = nodefs.NewFileSystemConnector(RootNode, &nodefs.Options{})
@@ -169,10 +171,11 @@ func main_fuse() {
 		AllowOther: *other,
 		Name:       "MegaDrive",
 		FsName:     mount_point,
-		Debug:      *debug,
+		Debug:      *fuse_debug,
+		Options:    []string{"nonempty"},
 	}
-	os.Mkdir(mount_parent+"/.MegaDrive", 0755)
-	CacheDir = mount_parent + "/.MegaDrive/"
+	os.Mkdir(mount_parent+"/.MegaDrive-"+mount_base, 0755)
+	CacheDir = mount_parent + "/.MegaDrive" + mount_base + "/"
 	MemCache = cache.New(15*time.Minute, 30*time.Minute)
 
 	// Mount fs
