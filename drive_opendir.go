@@ -32,11 +32,11 @@ func DriveOpenDir(google_id string) ([]fuse.DirEntry, fuse.Status) {
 		MapOpenDirAns[google_id] = make([]*sync.Mutex, 0)
 	}
 	MapOpenDirAns[google_id] = append(MapOpenDirAns[google_id], mux)
+	mux.Lock()
 	MapOpenDirAnsMux.Unlock()
 	// Tell the DriveGetBasicsConsumer to load this file's info
 	ChOpenDirReq <- google_id
-	// Wait for it to finish (yes, it is a hack/gambiarra)
-	mux.Lock()
+	// Wait for it to finish
 	mux.Lock()
 	var ans []fuse.DirEntry
 	var status fuse.Status

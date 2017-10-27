@@ -94,11 +94,20 @@ func main() {
 	go func() {
 		for _ = range sig_chan {
 			Unmounting = true
+			Log.Notice("Closing DB...")
+			err := DB.Close()
+			if err != nil {
+				Log.ErrorF("Failed to close DB: %v", err)
+			} else {
+				Log.Notice("DB closed")
+			}
+
 			Log.Notice("Unmounting...")
 			FUSEServer.Unmount()
 			FUSEServer.Unmount()
 			FUSEServer.Unmount()
 			Log.Notice("Unmounted")
+
 			os.Exit(0)
 		}
 	}()
