@@ -153,12 +153,14 @@ func CSet_bytes(key string, val []byte) {
 func CSet(key string, val interface{}) {
 	switch v := val.(type) {
 	case string:
+		Log.DebugNF(1, "Cache SET %s = %s", key, v)
 		CSet_bytes(key, []byte(v))
 	default:
 		byt, err := json.Marshal(val)
 		if err != nil {
 			Log.PanicF("Failed to encode json: %v", err)
 		}
+		Log.DebugNF(1, "Cache SET %s = %s", key, string(byt))
 		CSet_bytes(key, byt)
 	}
 }

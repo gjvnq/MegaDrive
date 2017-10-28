@@ -8,8 +8,8 @@ import (
 )
 
 const OPENDIR_REFRESH_DELTA = 3 * time.Minute
+const OPENDIR_CACHE_ENABLE = false
 const OPENDIR_PRELOAD_ENABLE = false
-const OPENDIR_AUTO_CACHE_FOR_LOOKUP = false
 const OPENDIR_AUTO_CACHE_FOR_GETBASICS = false
 
 // When we need a new directories list, we add its id to ChOpenDirReq which consumed ONLY by DriveOpenDirConsumer. We also add our own (locked) mutex to MapOpenDirAns. This way, whenever some function loads/reloads the piece of information we need, all functions waiting for it will have theirs mutexes unlocked, telling them that the information they need is now on the cache. DriveOpenDirConsumer is smart enough to efficiently handle the same file id being multiple times on ChOpenDirReq. LP means low priority and is used for preloading.
@@ -35,8 +35,8 @@ func DriveOpenDir(google_id string) ([]fuse.DirEntry, fuse.Status) {
 	flag_ask_refresh := refresh_time < time.Now().Unix()
 	flag_must_wait := refresh_time == 0 // Only wait for the answer when absolutely necessary
 
-	if flag_ask_refresh {
-		if flag_must_wait {
+	if flag_ask_refresh && OPENDIR_CACHE_ENABLE {
+		if flag_must_wait || OPENDIR_CACHE_ENABLE == false {
 			// Lock the MapBasicInfoAns for editing and add our own answer mutex
 			MapOpenDirAnsMux.Lock()
 			mux := &sync.Mutex{}
@@ -46,12 +46,12 @@ func DriveOpenDir(google_id string) ([]fuse.DirEntry, fuse.Status) {
 			MapOpenDirAns[google_id] = append(MapOpenDirAns[google_id], mux)
 			mux.Lock()
 			MapOpenDirAnsMux.Unlock()
-			// Tell the DriveGetBasicsConsumer to load this file's info
+			// Tell the DriveOpenDirConsumer to load this file's info
 			ChOpenDirReq <- google_id
 			// Wait for it to finish
 			mux.Lock()
 		} else {
-			// Tell the DriveGetBasicsConsumer to load this file's info
+			// Tell the DriveOpenDirConsumer to load this file's info
 			// But do not wait for it
 			ChOpenDirReq <- google_id
 			Log.InfoF("%s will be refreshed later (async)", google_id)
@@ -128,20 +128,44 @@ func DriveOpenDirConsumerCore(google_id string) (ret_dirs []fuse.DirEntry, ret_c
 
 	ret_dirs = make([]fuse.DirEntry, 0)
 	if len(r.Files) > 0 {
+		// Check for multiple files with the same name
+		used_names := make(map[string]bool)
+		doubled_names := make(map[string]bool)
+		for _, file := range r.Files {
+			n := MDNode{}
+			n.GoogleId = file.Id
+			n.Name = file.Name
+			n.MimeType = file.MimeType
+
+			name := n.SanitizedName()
+
+			if used_names[name] == true {
+				doubled_names[name] = true
+			}
+			used_names[name] = true
+		}
+
 		// Return files found
 		for _, file := range r.Files {
+			n := MDNode{}
+			n.GoogleId = file.Id
+			n.Name = file.Name
+			n.MimeType = file.MimeType
+
 			val := fuse.DirEntry{}
-			val.Name = file.Name
-			isDir := file.MimeType == "application/vnd.google-apps.folder"
-			if isDir {
+			val.Name = n.SanitizedName()
+			// Be careful with files with equal names
+			if doubled_names[val.Name] == true {
+				val.Name = n.UnambiguousName()
+			}
+			if n.IsDir() {
 				val.Mode = fuse.S_IFDIR
 			}
 			ret_dirs = append(ret_dirs, val)
+
 			// Cache some stuff
-			if OPENDIR_AUTO_CACHE_FOR_LOOKUP {
-				CSet("Lookup:"+file.Name+":in:"+google_id+":id", file.Id)
-				CSet("Lookup:"+file.Name+":in:"+google_id+":isDir", isDir)
-			}
+			CSet("Lookup:"+val.Name+":in:"+google_id+":id", n.GoogleId)
+			CSet("Lookup:"+val.Name+":in:"+google_id+":isDir", n.IsDir())
 			// "Preload" some stuff to make things quicker
 			if OPENDIR_AUTO_CACHE_FOR_GETBASICS {
 				found := CFoundPrefix("BasicAttr:"+google_id+":", "Name", "MimeType", "Size", "MD5", "Atime", "Ctime", "Mtime", "Atimensec", "Ctimensec", "Mtimensec")
@@ -162,4 +186,7 @@ func DriveOpenDirConsumerCore(google_id string) (ret_dirs []fuse.DirEntry, ret_c
 		ret_code = fuse.ENODATA
 		return
 	}
+}
+
+func DriveOpenDirConsumerCoreBody() {
 }

@@ -7,11 +7,29 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
 )
+
+const MimeTypeGoogleAudio = "application/vnd.google-apps.audio"
+const MimeTypeGoogleDocument = "application/vnd.google-apps.document"
+const MimeTypeGoogleDrawing = "application/vnd.google-apps.drawing"
+const MimeTypeGoogleFile = "application/vnd.google-apps.file"
+const MimeTypeGoogleFolder = "application/vnd.google-apps.folder"
+const MimeTypeGoogleForm = "application/vnd.google-apps.form"
+const MimeTypeGoogleFusiontable = "application/vnd.google-apps.fusiontable"
+const MimeTypeGoogleMap = "application/vnd.google-apps.map"
+const MimeTypeGooglePhoto = "application/vnd.google-apps.photo"
+const MimeTypeGooglePresentation = "application/vnd.google-apps.presentation"
+const MimeTypeGoogleScript = "application/vnd.google-apps.script"
+const MimeTypeGoogleSites = "application/vnd.google-apps.sites"
+const MimeTypeGoogleSpreadsheet = "application/vnd.google-apps.spreadsheet"
+const MimeTypeGoogleUnknown = "application/vnd.google-apps.unknown"
+const MimeTypeGoogleVideo = "application/vnd.google-apps.video"
+const MimeTypeGoogleDriveSdk = "application/vnd.google-apps.drive-sdk"
 
 const DevSecret = "{\"installed\":{\"client_id\":\"247137966113-i7t9f4qmg579dc5kjkoe9o1fiavemu1h.apps.googleusercontent.com\",\"project_id\":\"elevated-codex-175014\",\"auth_uri\":\"https://accounts.google.com/o/oauth2/auth\",\"token_uri\":\"https://accounts.google.com/o/oauth2/token\",\"auth_provider_x509_cert_url\":\"https://www.googleapis.com/oauth2/v1/certs\",\"client_secret\":\"zsJmWViFbtFh7tyCgTNHxINw\",\"redirect_uris\":[\"urn:ietf:wg:oauth:2.0:oob\",\"http://localhost\"]}}"
 
@@ -100,6 +118,47 @@ func GetDriveClient() *drive.Service {
 	return srv
 }
 
-func DriveSanitizeName(original_name string) string {
-	return original_name
+func DriveSanitizeName(original_name, mime_type string) string {
+	name := strings.Replace(original_name, "/", "\u2215", -1)
+
+	switch mime_type {
+	case MimeTypeGoogleAudio:
+		return name + ".gdaud"
+	case MimeTypeGoogleDocument:
+		return name + ".gddoc"
+	case MimeTypeGoogleDrawing:
+		return name + ".gddraw"
+	case MimeTypeGoogleFile:
+		return name + ".gdfile"
+	case MimeTypeGoogleFolder:
+		return name
+	case MimeTypeGoogleForm:
+		return name + ".gdform"
+	case MimeTypeGoogleFusiontable:
+		return name + ".gdtable"
+	case MimeTypeGoogleMap:
+		return name + ".gdmap"
+	case MimeTypeGooglePhoto:
+		return name + ".gdphoto"
+	case MimeTypeGooglePresentation:
+		return name + ".gdslides"
+	case MimeTypeGoogleScript:
+		return name + ".gdscript"
+	case MimeTypeGoogleSites:
+		return name + ".gdsite"
+	case MimeTypeGoogleSpreadsheet:
+		return name + ".gdsheet"
+	case MimeTypeGoogleUnknown:
+		return name + ".gd"
+	case MimeTypeGoogleVideo:
+		return name + ".gdvideo"
+	case MimeTypeGoogleDriveSdk:
+		return name + ".gdsdk"
+	default:
+		return name
+	}
+}
+
+func DriveUnambiguousName(id, original_name, mime_type string) string {
+	return DriveSanitizeName(original_name+" ("+id+")", mime_type)
 }

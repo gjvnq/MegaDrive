@@ -29,22 +29,47 @@ func DriveGetBasicsPreload(google_id string) {
 
 // Adds the desired file id to ChBasicInfoReq and waits for the answer
 func DriveGetBasics(google_id string) fuse.Status {
-	// Lock the MapBasicInfoAns for editing and add our own answer mutex
-	MapBasicInfoAnsMux.Lock()
-	mux := &sync.Mutex{}
-	if _, b := MapBasicInfoAns[google_id]; !b {
-		MapBasicInfoAns[google_id] = make([]*sync.Mutex, 0)
-	}
-	MapBasicInfoAns[google_id] = append(MapBasicInfoAns[google_id], mux)
-	MapBasicInfoAnsMux.Unlock()
-	// Tell the DriveGetBasicsConsumer to load this file's info
-	ChBasicInfoReq <- google_id
-	// Wait for it to finish (yes, it is a hack/gambiarra)
-	mux.Lock()
-	mux.Lock()
-	// Get return value
+	// Check for cached copy
+	refresh_time := CGetDef_int64("BasicAttr:"+google_id+":!RefrehTime", 0)
+	flag_ask_refresh := refresh_time < time.Now().Unix()
+	flag_must_wait := refresh_time == 0 // Only wait for the answer when absolutely necessary
+
+	// Ensure we try again in case of error
 	ret := fuse.EIO
 	CGet("BasicAttr:"+google_id+":!ret", &ret)
+	if ret != fuse.OK {
+		flag_ask_refresh = true
+		flag_must_wait = true
+	}
+
+	if flag_ask_refresh || GETBASICS_CACHE_ENABLE == false {
+		if flag_must_wait || GETBASICS_CACHE_ENABLE == false {
+			// Lock the MapBasicInfoAns for editing and add our own answer mutex
+			MapBasicInfoAnsMux.Lock()
+			mux := &sync.Mutex{}
+			if _, b := MapBasicInfoAns[google_id]; !b {
+				MapBasicInfoAns[google_id] = make([]*sync.Mutex, 0)
+			}
+			MapBasicInfoAns[google_id] = append(MapBasicInfoAns[google_id], mux)
+			MapBasicInfoAnsMux.Unlock()
+			// Tell the DriveGetBasicsConsumer to load this file's info
+			ChBasicInfoReq <- google_id
+			// Wait for it to finish (yes, it is a hack/gambiarra)
+			mux.Lock()
+			mux.Lock()
+		} else {
+			// Tell the DriveGetBasicsConsumer to load this file's info
+			// But do not wait for it
+			ChOpenDirReq <- google_id
+			Log.InfoF("%s will be refreshed later (async)", google_id)
+		}
+	}
+	// Get return value
+	ret = fuse.EIO
+	CGet("BasicAttr:"+google_id+":!ret", &ret)
+	if ret != fuse.OK {
+		Log.WarningF("Failed to get basics for %s: %v", google_id, ret)
+	}
 	return ret
 }
 
@@ -65,12 +90,8 @@ func DriveGetBasicsConsumer() {
 			Log.DebugF("DriveGetBasicsConsumer: Skipping %s", google_id)
 			continue
 		}
-		// Check for a cached copy
-		refresh_time := CGetDef_int64("BasicAttr:"+google_id+":!RefrehTime", 0)
-		flag_refresh := refresh_time < time.Now().Unix()
-		if flag_refresh || GETBASICS_CACHE_ENABLE == false {
-			DriveGetBasicsConsumerCore(google_id)
-		}
+		// Actually work
+		DriveGetBasicsConsumerCore(google_id)
 		// Unlock answer mutexes
 		MapBasicInfoAnsMux.Lock()
 		for _, mux := range MapBasicInfoAns[google_id] {

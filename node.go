@@ -41,11 +41,15 @@ type MDNode struct {
 }
 
 func (n MDNode) SanitizedName() string {
-	return DriveSanitizeName(n.Name)
+	return DriveSanitizeName(n.Name, n.MimeType)
+}
+
+func (n MDNode) UnambiguousName() string {
+	return DriveUnambiguousName(n.GoogleId, n.Name, n.MimeType)
 }
 
 func (n *MDNode) IsDir() bool {
-	return n.MimeType == "application/vnd.google-apps.folder"
+	return n.MimeType == MimeTypeGoogleFolder
 }
 
 func (fs *MDNode) OnUnmount() {
@@ -107,7 +111,7 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (ret
 
 	// Ensure data will be here
 	n.GetBasics()
-	go DriveOpenDir(n.GoogleId)
+	DriveOpenDir(n.GoogleId)
 
 	// Check for cache
 	if CFoundPrefix("Lookup:"+name+":in:"+n.GoogleId+":", "id", "isDir") {
@@ -119,44 +123,8 @@ func (n *MDNode) Lookup(out *fuse.Attr, name string, context *fuse.Context) (ret
 		child.Node().GetAttr(out, nil, context)
 		Log.DebugF("%s -> fuse.OK", name)
 		return child, fuse.OK
-	}
-
-	// Call Google Drive
-	r, err := DriveClient.Files.List().
-		Fields("files(id, mimeType)").
-		Q(escape("'?' in parents and name = '?' and trashed = false", n.GoogleId, name)).
-		Do()
-	if err != nil {
-		Log.ErrorF("Unable to LookUp %s in %s: %v", name, n.GoogleId, err)
-		return nil, fuse.EIO
-	}
-
-	if len(r.Files) == 0 {
-		Log.DebugF("%s -> fuse.ENOENT", name)
-		return nil, fuse.ENOENT
-	} else if len(r.Files) == 1 {
-		new_node := &MDNode{}
-		new_node.GoogleId = r.Files[0].Id
-		isDir := (r.Files[0].MimeType == "application/vnd.google-apps.folder")
-		Log.DebugF("%s -> fuse.OK", name)
-		child := n.Inode().NewChild(name, isDir, new_node)
-		child.Node().GetAttr(out, nil, context)
-
-		// Save cache
-		CSet("Lookup:"+name+":in:"+n.GoogleId+":id", new_node.GoogleId)
-		CSet("Lookup:"+name+":in:"+n.GoogleId+":isDir", isDir)
-		// Preload
-		Log.DebugF("Preloading (in new goroutine) %s (parent %s %s)", new_node.GoogleId, n.GoogleId, n.Name)
-		if isDir {
-			DriveOpenDirPreload(new_node.GoogleId)
-		} else {
-			DriveGetBasicsPreload(new_node.GoogleId)
-		}
-
-		return child, fuse.OK
 	} else {
-		Log.DebugF("%s -> fuse.EIO (%d) %+v", name, len(r.Files), r.Files)
-		return nil, fuse.EIO
+		return nil, fuse.ENOENT
 	}
 }
 
@@ -246,6 +214,9 @@ func (n *MDNode) GetXAttr(attribute string, context *fuse.Context) (data []byte,
 	if attribute == "user.google-id" {
 		return []byte(n.GoogleId), fuse.OK
 	}
+	if attribute == "user.mime" {
+		return []byte(n.MimeType), fuse.OK
+	}
 	return nil, fuse.ENOATTR
 }
 
@@ -261,7 +232,7 @@ func (n *MDNode) SetXAttr(attr string, data []byte, flags int, context *fuse.Con
 
 func (n *MDNode) ListXAttr(context *fuse.Context) (attrs []string, code fuse.Status) {
 	Log.DebugF("ListXAttr")
-	return []string{"user.google-id"}, fuse.OK
+	return []string{"user.google-id", "user.mime"}, fuse.OK
 }
 
 func (n *MDNode) GetBasics() fuse.Status {
