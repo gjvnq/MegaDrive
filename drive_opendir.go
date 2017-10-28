@@ -7,7 +7,10 @@ import (
 	"github.com/hanwen/go-fuse/fuse"
 )
 
-const UPDATE_DELTA_OPENDIR = 3 * time.Minute
+const OPENDIR_REFRESH_DELTA = 3 * time.Minute
+const OPENDIR_PRELOAD_ENABLE = false
+const OPENDIR_AUTO_CACHE_FOR_LOOKUP = false
+const OPENDIR_AUTO_CACHE_FOR_GETBASICS = false
 
 // When we need a new directories list, we add its id to ChOpenDirReq which consumed ONLY by DriveOpenDirConsumer. We also add our own (locked) mutex to MapOpenDirAns. This way, whenever some function loads/reloads the piece of information we need, all functions waiting for it will have theirs mutexes unlocked, telling them that the information they need is now on the cache. DriveOpenDirConsumer is smart enough to efficiently handle the same file id being multiple times on ChOpenDirReq. LP means low priority and is used for preloading.
 var ChOpenDirReq = make(chan string, 64)
@@ -17,9 +20,11 @@ var MapOpenDirAnsMux = new(sync.RWMutex)
 
 // Adds the desired file id to ChOpenDirReqLP if it is not full. Otherwise, nothing happens.
 func DriveOpenDirPreload(google_id string) {
-	select {
-	case ChOpenDirReqLP <- google_id:
-	default:
+	if OPENDIR_PRELOAD_ENABLE {
+		select {
+		case ChOpenDirReqLP <- google_id:
+		default:
+		}
 	}
 }
 
@@ -133,19 +138,23 @@ func DriveOpenDirConsumerCore(google_id string) (ret_dirs []fuse.DirEntry, ret_c
 			}
 			ret_dirs = append(ret_dirs, val)
 			// Cache some stuff
-			CSet("Lookup:"+file.Name+":in:"+google_id+":id", file.Id)
-			CSet("Lookup:"+file.Name+":in:"+google_id+":isDir", isDir)
+			if OPENDIR_AUTO_CACHE_FOR_LOOKUP {
+				CSet("Lookup:"+file.Name+":in:"+google_id+":id", file.Id)
+				CSet("Lookup:"+file.Name+":in:"+google_id+":isDir", isDir)
+			}
 			// "Preload" some stuff to make things quicker
-			found := CFoundPrefix("BasicAttr:"+google_id+":", "Name", "MimeType", "Size", "MD5", "Atime", "Ctime", "Mtime", "Atimensec", "Ctimensec", "Mtimensec")
-			if !found {
-				DriveGetBasicsPut(file.Id, file.Name, file.MimeType, file.Md5Checksum, file.Size, file.ModifiedTime, file.CreatedTime)
-				Log.DebugF("Preloaded %s (%s)", file.Id, file.Name)
+			if OPENDIR_AUTO_CACHE_FOR_GETBASICS {
+				found := CFoundPrefix("BasicAttr:"+google_id+":", "Name", "MimeType", "Size", "MD5", "Atime", "Ctime", "Mtime", "Atimensec", "Ctimensec", "Mtimensec")
+				if !found {
+					DriveGetBasicsPut(file.Id, file.Name, file.MimeType, file.Md5Checksum, file.Size, file.ModifiedTime, file.CreatedTime)
+					Log.DebugF("Preloaded %s (%s)", file.Id, file.Name)
+				}
 			}
 		}
 		// Save cache
 		CSet("OpenDir:"+google_id, ret_dirs)
 		CSet("OpenDir:"+google_id+":!ret", fuse.OK)
-		CSet("OpenDir:"+google_id+":!RefrehTime", time.Now().Add(UPDATE_DELTA_OPENDIR).Unix())
+		CSet("OpenDir:"+google_id+":!RefrehTime", time.Now().Add(OPENDIR_REFRESH_DELTA).Unix())
 		ret_code = fuse.OK
 		return
 	} else {

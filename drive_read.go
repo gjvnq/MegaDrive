@@ -9,7 +9,9 @@ import (
 	"github.com/hanwen/go-fuse/fuse"
 )
 
-const UPDATE_DELTA_READ = 3 * time.Minute
+const READ_REFRESH_DELTA = 3 * time.Minute
+const READ_CACHE_ENABLE = false
+const READ_PRELOAD_ENABLE = false
 
 var ChReadReq = make(chan string, 64)
 var ChReadReqLP = make(chan string, 64)
@@ -18,9 +20,11 @@ var MapReadAnsMux = new(sync.RWMutex)
 
 // Adds the desired file id to ChReadReqLP if it is not full. Otherwise, nothing happens.
 func DriveReadPreload(google_id string) {
-	select {
-	case ChReadReqLP <- google_id:
-	default:
+	if READ_PRELOAD_ENABLE {
+		select {
+		case ChReadReqLP <- google_id:
+		default:
+		}
 	}
 }
 
@@ -76,7 +80,7 @@ func DriveReadConsumer() {
 		cloud_mtime := CGetDef_int64("BasicAttr:"+google_id+":Mtime", 0)
 		local_mtime := file_mtime(CacheDir + google_id)
 		flag_refresh := cloud_mtime > local_mtime || cloud_mtime == 0 || local_mtime == 0
-		if flag_refresh || !CFound("Read:"+google_id+":!ret") {
+		if flag_refresh || !CFound("Read:"+google_id+":!ret") || READ_CACHE_ENABLE == false {
 			DriveReadConsumerCore(google_id)
 		}
 		// Unlock answer mutexes

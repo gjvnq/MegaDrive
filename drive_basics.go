@@ -7,7 +7,9 @@ import (
 	"github.com/hanwen/go-fuse/fuse"
 )
 
-const UPDATE_DELTA_BASICS = 3 * time.Minute
+const GETBASICS_REFRESH_DELTA = 3 * time.Minute
+const GETBASICS_CACHE_ENABLE = false
+const GETBASICS_PRELOAD_ENABLE = false
 
 // When we need a new file's info, we add its id to ChBasicInfoReq which consumed ONLY by DriveGetBasicsConsumer. We also add our own (locked) mutex to MapBasicInfoAns. This way, whenever some function loads/reloads the piece of information we need, all functions waiting for it will have theirs mutexes unlocked, telling them that the information they need is now on the cache. DriveGetBasicsConsumer is smart enough to efficiently handle the same file id being multiple times on ChBasicInfoReq. LP means low priority and is used for preloading.
 var ChBasicInfoReq = make(chan string, 64)
@@ -17,9 +19,11 @@ var MapBasicInfoAnsMux = new(sync.RWMutex)
 
 // Adds the desired file id to ChBasicInfoReqLP if it is not full. Otherwise, nothing happens.
 func DriveGetBasicsPreload(google_id string) {
-	select {
-	case ChBasicInfoReqLP <- google_id:
-	default:
+	if GETBASICS_PRELOAD_ENABLE {
+		select {
+		case ChBasicInfoReqLP <- google_id:
+		default:
+		}
 	}
 }
 
@@ -55,15 +59,16 @@ func DriveGetBasicsConsumer() {
 			Log.DebugF("DriveGetBasicsConsumer: Loaded %s from ChBasicInfoReqLP", google_id)
 		}
 		_start := time.Now()
-		// Check for cached copy
+		// Do not work twice TODO: use timeout
 		flag_working := CGetDef_bool("BasicAttr:"+google_id+":!working", false)
 		if flag_working == true {
 			Log.DebugF("DriveGetBasicsConsumer: Skipping %s", google_id)
 			continue
 		}
+		// Check for a cached copy
 		refresh_time := CGetDef_int64("BasicAttr:"+google_id+":!RefrehTime", 0)
 		flag_refresh := refresh_time < time.Now().Unix()
-		if flag_refresh {
+		if flag_refresh || GETBASICS_CACHE_ENABLE == false {
 			DriveGetBasicsConsumerCore(google_id)
 		}
 		// Unlock answer mutexes
@@ -126,7 +131,7 @@ func DriveGetBasicsPut(google_id string, name string, mimeType string, md5 strin
 	defer CUnlock("BasicAttr:" + google_id + ":!mux")
 
 	// Save stuff
-	CSet("BasicAttr:"+google_id+":!RefrehTime", time.Now().Add(UPDATE_DELTA_BASICS).Unix())
+	CSet("BasicAttr:"+google_id+":!RefrehTime", time.Now().Add(GETBASICS_REFRESH_DELTA).Unix())
 	CSet("BasicAttr:"+google_id+":Name", name)
 	CSet("BasicAttr:"+google_id+":MimeType", mimeType)
 	CSet("BasicAttr:"+google_id+":MD5", md5)

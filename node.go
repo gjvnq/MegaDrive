@@ -21,6 +21,8 @@ func escape(q string, args ...string) string {
 	return ret
 }
 
+const NODE_GETBASICS_LOCAL_CACHE_ENABLE = false
+
 type MDNode struct {
 	GoogleId   string
 	inode      *nodefs.Inode
@@ -36,6 +38,10 @@ type MDNode struct {
 	Ctimensec  uint32
 	GotBasics  bool
 	cache_file *os.File
+}
+
+func (n MDNode) SanitizedName() string {
+	return DriveSanitizeName(n.Name)
 }
 
 func (n *MDNode) IsDir() bool {
@@ -262,7 +268,7 @@ func (n *MDNode) GetBasics() fuse.Status {
 	_start := time.Now()
 	defer PrintCallDuration("GetBasics", &_start)
 
-	if n.GotBasics {
+	if n.GotBasics && NODE_GETBASICS_LOCAL_CACHE_ENABLE {
 		return fuse.OK
 	}
 

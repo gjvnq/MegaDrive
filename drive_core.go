@@ -99,3 +99,7 @@ func GetDriveClient() *drive.Service {
 
 	return srv
 }
+
+func DriveSanitizeName(original_name string) string {
+	return original_name
+}
