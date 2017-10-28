@@ -61,7 +61,7 @@ func DriveGetBasics(google_id string) fuse.Status {
 			// Tell the DriveGetBasicsConsumer to load this file's info
 			// But do not wait for it
 			ChOpenDirReq <- google_id
-			Log.InfoF("%s will be refreshed later (async)", google_id)
+			Log.InfoF("%s (%s) will be refreshed later (async)", google_id, CGet_str("BasicAttr:"+google_id+":Name"))
 		}
 	}
 	// Get return value

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 )
 
 const OPENDIR_REFRESH_DELTA = 3 * time.Minute
+const OPENDIR_WORK_TIMEOUT = 2 * time.Minute
 const OPENDIR_CACHE_ENABLE = true
 const OPENDIR_PRELOAD_ENABLE = true
 const OPENDIR_AUTO_CACHE_FOR_GETBASICS = true
@@ -76,14 +78,11 @@ func DriveOpenDirConsumer() {
 			Log.DebugF("DriveOpenDirConsumer: Loaded %s from ChOpenDirReqLP", google_id)
 		}
 		_start := time.Now()
-		// Avoid double work
-		flag_working := CGetDef_bool("OpenDir:"+google_id+":!working", false)
-		if flag_working == true {
-			Log.DebugF("DriveOpenDirConsumer: Skipping %s", google_id)
+		// Actually work
+		_, _, skip := DriveOpenDirConsumerCore(google_id)
+		if skip {
 			continue
 		}
-		// Actually work
-		DriveOpenDirConsumerCore(google_id)
 		// Unlock answer mutexes
 		MapOpenDirAnsMux.Lock()
 		for _, mux := range MapOpenDirAns[google_id] {
@@ -96,7 +95,7 @@ func DriveOpenDirConsumer() {
 	}
 }
 
-func DriveOpenDirConsumerCore(google_id string) (ret_dirs []fuse.DirEntry, ret_code fuse.Status) {
+func DriveOpenDirConsumerCore(google_id string) (ret_dirs []fuse.DirEntry, ret_code fuse.Status, skip bool) {
 	ret_dirs = make([]fuse.DirEntry, 0)
 	ret_code = fuse.EIO
 
@@ -110,11 +109,17 @@ func DriveOpenDirConsumerCore(google_id string) (ret_dirs []fuse.DirEntry, ret_c
 
 	_start := time.Now()
 	defer PrintCallDuration("DriveOpenDirConsumerCore", &_start)
-	Log.InfoF("DriveOpenDirConsumerCore: Loading %s from the Internet", google_id)
-	CSet("OpenDir:"+google_id+":!ret", fuse.EIO)
 
-	CSet("OpenDir:"+google_id+":!working", true)
-	defer CSet("OpenDir:"+google_id+":!working", false)
+	// Avoid double work
+	refresh_time := CGetDef_int64("OpenDir:"+google_id+":!WorkTimeout", 0)
+	if refresh_time > time.Now().Unix() {
+		Log.DebugF("DriveOpenDirConsumer: Skipping %s", google_id)
+		skip = true
+		return
+	}
+	CSet("OpenDir:"+google_id+":!WorkTimeout", time.Now().Add(OPENDIR_WORK_TIMEOUT).Unix())
+	CSet("OpenDir:"+google_id+":!ret", fuse.EIO)
+	Log.InfoF("DriveOpenDirConsumerCore: Loading %s from the Internet", google_id)
 
 	// Call Google Drive
 	r, err := DriveClient.Files.List().
