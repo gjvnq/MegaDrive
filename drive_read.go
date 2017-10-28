@@ -10,7 +10,7 @@ import (
 )
 
 const READ_REFRESH_DELTA = 3 * time.Minute
-const READ_CACHE_ENABLE = false
+const READ_CACHE_ENABLE = true
 const READ_PRELOAD_ENABLE = false
 
 var ChReadReq = make(chan string, 64)

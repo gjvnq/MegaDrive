@@ -8,9 +8,9 @@ import (
 )
 
 const OPENDIR_REFRESH_DELTA = 3 * time.Minute
-const OPENDIR_CACHE_ENABLE = false
-const OPENDIR_PRELOAD_ENABLE = false
-const OPENDIR_AUTO_CACHE_FOR_GETBASICS = false
+const OPENDIR_CACHE_ENABLE = true
+const OPENDIR_PRELOAD_ENABLE = true
+const OPENDIR_AUTO_CACHE_FOR_GETBASICS = true
 
 // When we need a new directories list, we add its id to ChOpenDirReq which consumed ONLY by DriveOpenDirConsumer. We also add our own (locked) mutex to MapOpenDirAns. This way, whenever some function loads/reloads the piece of information we need, all functions waiting for it will have theirs mutexes unlocked, telling them that the information they need is now on the cache. DriveOpenDirConsumer is smart enough to efficiently handle the same file id being multiple times on ChOpenDirReq. LP means low priority and is used for preloading.
 var ChOpenDirReq = make(chan string, 64)
@@ -21,6 +21,7 @@ var MapOpenDirAnsMux = new(sync.RWMutex)
 // Adds the desired file id to ChOpenDirReqLP if it is not full. Otherwise, nothing happens.
 func DriveOpenDirPreload(google_id string) {
 	if OPENDIR_PRELOAD_ENABLE {
+		Log.DebugF("Preloading directory (new goroutine) %s", google_id)
 		select {
 		case ChOpenDirReqLP <- google_id:
 		default:
@@ -81,6 +82,8 @@ func DriveOpenDirConsumer() {
 			Log.DebugF("DriveOpenDirConsumer: Skipping %s", google_id)
 			continue
 		}
+		// Actually work
+		DriveOpenDirConsumerCore(google_id)
 		// Unlock answer mutexes
 		MapOpenDirAnsMux.Lock()
 		for _, mux := range MapOpenDirAns[google_id] {
